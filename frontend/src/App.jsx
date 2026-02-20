@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import FileList from './components/FileList.jsx'
 import FileViewer from './components/FileViewer.jsx'
 import FolderTree from './components/FolderTree.jsx'
@@ -11,6 +11,7 @@ export default function App() {
   const [fileData, setFileData] = useState(null)
   const [fileLoading, setFileLoading] = useState(false)
   const [fileError, setFileError] = useState(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   // Load folder tree on mount
   useEffect(() => {
@@ -18,7 +19,6 @@ export default function App() {
       .then(r => r.json())
       .then(data => {
         setFolders(data)
-        // Auto-select first folder
         if (data.length > 0) setSelectedFolder(data[0].path)
       })
       .catch(console.error)
@@ -36,20 +36,19 @@ export default function App() {
       .catch(console.error)
   }, [selectedFolder])
 
-  // Load file content when file selection changes
+  // Load file content when file selection or refreshKey changes
   useEffect(() => {
     if (!selectedFile) return
-    setFileLoading(true)
-    setFileError(null)
-    setFileData(null)
-
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp)$/i
     if (IMAGE_EXTS.test(selectedFile)) {
-      // Images don't need JSON fetch — FileViewer renders via /api/vault/raw/
       setFileData({ isImage: true })
       setFileLoading(false)
       return
     }
+
+    setFileLoading(true)
+    setFileError(null)
+    setFileData(null)
 
     fetch(`/api/vault/file/${selectedFile}`)
       .then(r => {
@@ -64,13 +63,39 @@ export default function App() {
         setFileError(e.message)
         setFileLoading(false)
       })
-  }, [selectedFile])
+  }, [selectedFile, refreshKey])
 
   function handleFolderSelect(path) {
     setSelectedFolder(path)
     setSelectedFile(null)
     setFileData(null)
   }
+
+  // Navigate to a file by full relative path (used by wikilink clicks)
+  function navigateToFile(relPath) {
+    const lastSlash = relPath.lastIndexOf('/')
+    const folder = lastSlash >= 0 ? relPath.slice(0, lastSlash) : ''
+    setSelectedFolder(folder)
+    setSelectedFile(relPath)
+  }
+
+  // Resolve a wikilink name → path, then navigate (V-5)
+  const handleWikilinkClick = useCallback(async (name) => {
+    try {
+      const r = await fetch(`/api/vault/resolve?name=${encodeURIComponent(name)}`)
+      const data = await r.json()
+      if (data.path) {
+        navigateToFile(data.path)
+      }
+    } catch (e) {
+      console.error('Wikilink resolve failed:', e)
+    }
+  }, [])
+
+  // After a save, reload file content (V-11)
+  const handleSaved = useCallback(() => {
+    setRefreshKey(k => k + 1)
+  }, [])
 
   return (
     <div className="flex h-screen bg-base-100 text-base-content overflow-hidden">
@@ -124,6 +149,8 @@ export default function App() {
             data={fileData}
             loading={fileLoading}
             error={fileError}
+            onWikilinkClick={handleWikilinkClick}
+            onSaved={handleSaved}
           />
         </div>
       </div>

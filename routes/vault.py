@@ -7,6 +7,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, send_from_directory
 
 from config import IMAGE_EXTENSIONS, VAULT_DIR
+from services.links import find_file, get_file_links
 from services.vault import append_file, list_folder, read_file, write_file
 
 bp = Blueprint("vault", __name__)
@@ -123,6 +124,25 @@ def vault_append(rel_path):
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
+
+
+@bp.route("/api/vault/links/<path:rel_path>")
+def vault_links(rel_path):
+    """Forward links and backlinks for a vault file (V-3/V-6)."""
+    result = get_file_links(rel_path)
+    return jsonify(result)
+
+
+@bp.route("/api/vault/resolve")
+def vault_resolve():
+    """Resolve a wikilink name to its full relative path (V-5)."""
+    name = request.args.get("name", "").strip()
+    if not name:
+        return jsonify({"error": "name parameter required"}), 400
+    path = find_file(name)
+    if path:
+        return jsonify({"path": path})
+    return jsonify({"error": f"Not found: {name}"}), 404
 
 
 @bp.route("/api/vault/raw/<path:rel_path>")
