@@ -127,7 +127,7 @@ export default function SettingsPanel({ onClose }) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {!settings && (
           <p className="text-sm text-neutral-content opacity-60">Loading…</p>
         )}
@@ -186,6 +186,8 @@ export default function SettingsPanel({ onClose }) {
                 {indexingNow ? 'Indexing…' : 'Re-index now'}
               </button>
 
+              <div className="divider my-1"></div>
+
               {/* Excluded directories */}
               <div>
                 <p className="text-xs font-medium text-base-content opacity-70 mb-1">
@@ -232,6 +234,8 @@ export default function SettingsPanel({ onClose }) {
                 </div>
               </div>
             </section>
+
+            <div className="divider my-1"></div>
 
             {/* Search & MCP section */}
             <section>
