@@ -11,6 +11,16 @@ import path from "path";
 
 const VAULT_PATH = "/data/Dropbox/Work/fathom/vault";
 const VALID_STATUSES = new Set(["draft", "published", "archived"]);
+const ALLOWED_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"]);
+const IMAGE_MIME_TYPES = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+};
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const VAULT_SCHEMA = {
   title:   { required: true,  type: "string" },
   date:    { required: true,  type: "string" },
@@ -170,6 +180,67 @@ function handleVaultRead({ path: relPath }) {
   }
 }
 
+// --- Image handlers --------------------------------------------------------
+
+function handleVaultImage({ path: relPath }) {
+  if (!relPath) return { error: "path is required" };
+
+  const { abs, error } = safePath(relPath);
+  if (error) return { error };
+
+  const ext = path.extname(abs).toLowerCase();
+  if (!ALLOWED_IMAGE_EXTENSIONS.has(ext)) {
+    return {
+      error: `Not an allowed image extension: ${ext}. Allowed: ${[...ALLOWED_IMAGE_EXTENSIONS].join(", ")}`,
+    };
+  }
+
+  if (!fs.existsSync(abs)) return { error: `File not found: ${relPath}` };
+
+  const stat = fs.statSync(abs);
+  if (stat.size > MAX_IMAGE_BYTES) {
+    return { error: `Image too large (${stat.size} bytes, max 5MB)` };
+  }
+
+  const mimeType = IMAGE_MIME_TYPES[ext];
+  const data = fs.readFileSync(abs).toString("base64");
+  return { _image: true, data, mimeType };
+}
+
+function handleVaultWriteAsset({ folder, filename, data }) {
+  if (typeof folder !== "string") return { error: "folder is required (use empty string for root)" };
+  if (!filename) return { error: "filename is required" };
+  if (!data) return { error: "data is required" };
+
+  const ext = path.extname(filename).toLowerCase();
+  if (!ALLOWED_IMAGE_EXTENSIONS.has(ext)) {
+    return {
+      error: `Not an allowed image extension: ${ext}. Allowed: ${[...ALLOWED_IMAGE_EXTENSIONS].join(", ")}`,
+    };
+  }
+
+  const relPath = folder
+    ? path.join(folder, "assets", filename)
+    : path.join("assets", filename);
+
+  const { abs, error } = safePath(relPath);
+  if (error) return { error };
+
+  try {
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    const buffer = Buffer.from(data, "base64");
+    fs.writeFileSync(abs, buffer);
+    return {
+      saved: true,
+      path: relPath,
+      markdown: `![](assets/${filename})`,
+      fullPath: abs,
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 // --- Server setup ----------------------------------------------------------
 
 const server = new Server(
@@ -237,6 +308,53 @@ const tools = [
       required: ["path"],
     },
   },
+  {
+    name: "fathom_vault_image",
+    description:
+      "Read a vault image file and return it as base64 so Claude can perceive it. " +
+      "Supports jpg, jpeg, png, gif, webp, svg. Max 5MB.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Relative path to the image within the vault, e.g. 'assets/aurora.jpg' or 'research/assets/chart.png'",
+        },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "fathom_vault_write_asset",
+    description:
+      "Save a base64-encoded image into a vault folder's assets/ subdirectory. " +
+      "Creates the assets/ directory if needed. Returns the saved path and a markdown embed string.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        folder: {
+          type: "string",
+          description:
+            "Vault folder this asset belongs to, e.g. 'research', 'daily'. Use empty string for vault root.",
+        },
+        filename: {
+          type: "string",
+          description: "Filename with extension, e.g. 'chart.png', 'aurora-2026-02-03.jpg'",
+        },
+        data: {
+          type: "string",
+          description: "Base64-encoded image data",
+        },
+        mimeType: {
+          type: "string",
+          description:
+            "MIME type, e.g. 'image/png'. If omitted, inferred from filename extension.",
+        },
+      },
+      required: ["folder", "filename", "data"],
+    },
+  },
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
@@ -255,8 +373,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "fathom_vault_read":
       result = handleVaultRead(args);
       break;
+    case "fathom_vault_image":
+      result = handleVaultImage(args);
+      break;
+    case "fathom_vault_write_asset":
+      result = handleVaultWriteAsset(args);
+      break;
     default:
       result = { error: `Unknown tool: ${name}` };
+  }
+
+  // Image tool returns a special content block
+  if (result._image) {
+    return {
+      content: [{ type: "image", data: result.data, mimeType: result.mimeType }],
+    };
   }
 
   return {
