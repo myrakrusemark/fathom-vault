@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request, send_from_directory
 
 from config import IMAGE_EXTENSIONS, VAULT_DIR
 from services.links import find_file, get_file_links
+from services.settings import load_settings
 from services.vault import append_file, list_folder, read_file, write_file
 
 bp = Blueprint("vault", __name__)
@@ -227,20 +228,72 @@ def _parse_qmd_query_output(output: str) -> list[dict]:
 
 @bp.route("/api/vault/search")
 def vault_search():
-    """Full-text search via qmd query."""
+    """Full-text search via qmd. Reads settings for defaults; accepts override params.
+
+    Query params (all optional — fall back to settings when absent):
+        q        Search query string (required).
+        n        Result limit override (int).
+        mode     Search mode override: "hybrid" or "keyword".
+        timeout  Timeout override in seconds (int).
+
+    Response: {"results": [...], "excluded": N}
+        excluded — number of results filtered by excluded_dirs setting.
+    """
     q = request.args.get("q", "").strip()
     if not q:
-        return jsonify({"results": []})
+        return jsonify({"results": [], "excluded": 0})
+
+    settings = load_settings()
+    mcp = settings["mcp"]
+    excluded_dirs = settings["background_index"].get("excluded_dirs", [])
+
+    # Resolve params: query params override settings
+    n_param = request.args.get("n")
+    mode_param = request.args.get("mode")
+    timeout_param = request.args.get("timeout")
+
+    try:
+        n = int(n_param) if n_param is not None else mcp["search_results"]
+    except (ValueError, TypeError):
+        n = mcp["search_results"]
+
+    mode = mode_param if mode_param in ("hybrid", "keyword") else mcp["search_mode"]
+
+    try:
+        timeout = int(timeout_param) if timeout_param is not None else mcp["query_timeout_seconds"]
+    except (ValueError, TypeError):
+        timeout = mcp["query_timeout_seconds"]
+
+    # "keyword" mode uses qmd search (BM25 only); "hybrid" uses qmd query (BM25 + vector)
+    if mode == "keyword":
+        cmd = ["qmd", "search", q, "-n", str(n)]
+    else:
+        cmd = ["qmd", "query", q, "-n", str(n)]
 
     try:
         result = subprocess.run(
-            ["qmd", "query", q, "-n", "20"],
+            cmd,
             capture_output=True,
             text=True,
-            timeout=90,
+            timeout=timeout,
         )
         parsed = _parse_qmd_query_output(result.stdout)
-        return jsonify({"results": parsed})
+
+        # Post-filter: remove results whose path starts with any excluded dir
+        if excluded_dirs:
+            before = len(parsed)
+            parsed = [
+                r for r in parsed
+                if not any(
+                    r["file"] == ex.rstrip("/") or r["file"].startswith(ex.rstrip("/") + "/")
+                    for ex in excluded_dirs
+                )
+            ]
+            excluded_count = before - len(parsed)
+        else:
+            excluded_count = 0
+
+        return jsonify({"results": parsed, "excluded": excluded_count})
     except subprocess.TimeoutExpired:
         return jsonify({"error": "Search timed out"}), 504
     except FileNotFoundError:
