@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import FileList from './components/FileList.jsx'
 import FileViewer from './components/FileViewer.jsx'
 import FolderTree from './components/FolderTree.jsx'
+import ActiveFilesPanel from './components/ActiveFilesPanel.jsx'
 import SearchPanel from './components/SearchPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 
@@ -16,6 +17,21 @@ export default function App() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [activeFilesOpen, setActiveFilesOpen] = useState(false)
+  const [sortBy, setSortBy] = useState('modified')
+  const [showHeatDots, setShowHeatDots] = useState(true)
+
+  // Load activity settings on mount
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(data => {
+        const act = data.activity || {}
+        setShowHeatDots(act.show_heat_indicator !== false)
+        if (act.activity_sort_default) setSortBy('activity')
+      })
+      .catch(() => {})
+  }, [])
 
   // Load folder tree on mount
   useEffect(() => {
@@ -49,6 +65,13 @@ export default function App() {
       setFileLoading(false)
       return
     }
+
+    // Fire-and-forget: record access for activity tracking
+    fetch('/api/vault/access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: selectedFile }),
+    }).catch(() => {}) // never block the UI
 
     setFileLoading(true)
     setFileError(null)
@@ -154,8 +177,24 @@ export default function App() {
           </>
         )}
         <button
-          onClick={() => { setSearchOpen(o => !o); setSettingsOpen(false) }}
+          onClick={() => { setActiveFilesOpen(o => !o); setSearchOpen(false); setSettingsOpen(false) }}
           className={`ml-auto p-1 rounded hover:bg-base-300 transition-colors ${
+            activeFilesOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
+          }`}
+          aria-label="Toggle active files"
+          title="Active files"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <circle cx="12" cy="14" r="2" />
+            <path d="M12 12v-2" />
+          </svg>
+        </button>
+        <button
+          onClick={() => { setSearchOpen(o => !o); setSettingsOpen(false) }}
+          className={`p-1 rounded hover:bg-base-300 transition-colors ${
             searchOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
           }`}
           aria-label="Toggle search"
@@ -209,6 +248,9 @@ export default function App() {
             files={files}
             selectedFile={selectedFile}
             onSelect={setSelectedFile}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            showHeatDots={showHeatDots}
           />
         </div>
 
@@ -224,6 +266,16 @@ export default function App() {
             onSaved={handleSaved}
           />
         </div>
+
+        {/* Active Files panel (slides in from right) */}
+        {activeFilesOpen && (
+          <div className="w-[360px] shrink-0 border-l border-base-300 bg-base-200 overflow-y-auto">
+            <ActiveFilesPanel
+              onClose={() => setActiveFilesOpen(false)}
+              onNavigate={(path) => { navigateToFile(path); setActiveFilesOpen(false) }}
+            />
+          </div>
+        )}
 
         {/* Search panel (slides in from right) */}
         {searchOpen && (

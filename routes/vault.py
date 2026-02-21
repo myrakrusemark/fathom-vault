@@ -9,6 +9,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, send_from_directory
 
 from config import IMAGE_EXTENSIONS, VAULT_DIR
+from services.access import get_activity_scores, get_scores_for_paths, record_access
 from services.links import find_file, get_file_links
 from services.settings import load_settings
 from services.vault import append_file, list_folder, read_file, write_file
@@ -68,9 +69,7 @@ def vault_tree():
                     "path": "",
                     "file_count": len(root_md),
                     "image_count": len(root_img),
-                    "last_modified": (
-                        datetime.fromtimestamp(mtime).isoformat() if mtime else None
-                    ),
+                    "last_modified": (datetime.fromtimestamp(mtime).isoformat() if mtime else None),
                     "children": [],
                 },
             )
@@ -83,11 +82,29 @@ def vault_tree():
 @bp.route("/api/vault/folder/", defaults={"folder_path": ""})
 @bp.route("/api/vault/folder/<path:folder_path>")
 def vault_folder(folder_path):
-    """Files in a folder (title, date, tags, preview). Supports nested paths."""
+    """Files in a folder (title, date, tags, preview, activity scores). Supports nested paths."""
     result = list_folder(folder_path)
     if "error" in result:
         code = 404 if result["error"] in ("Folder not found",) else 400
         return jsonify(result), code
+
+    # Enrich markdown files with activity scores
+    files = result.get("files", [])
+    md_paths = [
+        (folder_path + "/" + f["name"] if folder_path else f["name"])
+        for f in files
+        if f.get("type") == "markdown"
+    ]
+    if md_paths:
+        scores = get_scores_for_paths(md_paths)
+        for f in files:
+            if f.get("type") == "markdown":
+                rel = folder_path + "/" + f["name"] if folder_path else f["name"]
+                entry = scores.get(rel, {})
+                f["activity_score"] = entry.get("score", 0.0)
+                f["open_count"] = entry.get("open_count", 0)
+                f["last_opened"] = entry.get("last_opened")
+    result["files"] = files
     return jsonify(result)
 
 
@@ -161,6 +178,76 @@ def vault_raw(rel_path):
     directory = os.path.dirname(abs_path)
     filename = os.path.basename(abs_path)
     return send_from_directory(directory, filename, as_attachment=False)
+
+
+# --- Access tracking ---
+
+
+@bp.route("/api/vault/access", methods=["POST"])
+def vault_record_access():
+    """Record a file open event.  Body: {"path": "relative/path.md"}."""
+    data = request.get_json(silent=True) or {}
+    path = data.get("path", "").strip()
+    if not path:
+        return jsonify({"error": "path is required"}), 400
+    # Validate the path stays within VAULT_DIR
+    abs_path = os.path.realpath(os.path.join(VAULT_DIR, path))
+    vault_real = os.path.realpath(VAULT_DIR)
+    if abs_path != vault_real and not abs_path.startswith(vault_real + os.sep):
+        return jsonify({"error": "Invalid path"}), 400
+    record_access(path)
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/vault/activity")
+def vault_activity():
+    """Return files sorted by activity score.
+
+    Query params:
+        limit   int  (default 20)
+        folder  str  optional -- filter to a specific folder prefix
+    """
+    settings = load_settings()
+    activity_cfg = settings.get("activity", {})
+    half_life = float(activity_cfg.get("decay_halflife_days", 7))
+    recency_window = float(activity_cfg.get("recency_window_hours", 48))
+    max_boost = float(activity_cfg.get("max_access_boost", 2.0))
+    excluded_folders = activity_cfg.get("excluded_from_scoring", ["daily"])
+
+    try:
+        limit = int(request.args.get("limit", 20))
+    except (ValueError, TypeError):
+        limit = 20
+
+    folder = request.args.get("folder", "").strip()
+
+    files = get_activity_scores(
+        limit=limit * 3,  # fetch extra so we can filter and still hit the limit
+        half_life_days=half_life,
+        recency_window_hours=recency_window,
+        max_boost=max_boost,
+    )
+
+    # Filter by folder prefix if requested
+    if folder:
+        folder_prefix = folder.rstrip("/") + "/"
+        files = [f for f in files if f["path"].startswith(folder_prefix)]
+
+    # Filter excluded folders
+    if excluded_folders:
+
+        def _not_excluded(entry):
+            for ex in excluded_folders:
+                ex = ex.strip().rstrip("/")
+                if not ex:
+                    continue
+                if entry["path"] == ex or entry["path"].startswith(ex + "/"):
+                    return False
+            return True
+
+        files = list(filter(_not_excluded, files))
+
+    return jsonify({"files": files[:limit]})
 
 
 # --- Search ---
@@ -283,7 +370,8 @@ def vault_search():
         if excluded_dirs:
             before = len(parsed)
             parsed = [
-                r for r in parsed
+                r
+                for r in parsed
                 if not any(
                     r["file"] == ex.rstrip("/") or r["file"].startswith(ex.rstrip("/") + "/")
                     for ex in excluded_dirs

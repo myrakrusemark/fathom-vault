@@ -48,7 +48,9 @@ def update_settings():
     if "query_timeout_seconds" in mcp_data:
         timeout = mcp_data["query_timeout_seconds"]
         if not isinstance(timeout, int) or not (10 <= timeout <= 300):
-            return jsonify({"error": "query_timeout_seconds must be an integer between 10 and 300"}), 400
+            return jsonify(
+                {"error": "query_timeout_seconds must be an integer between 10 and 300"}
+            ), 400
         settings["mcp"]["query_timeout_seconds"] = timeout
     if "search_results" in mcp_data:
         results = mcp_data["search_results"]
@@ -60,6 +62,38 @@ def update_settings():
         if mode not in ("hybrid", "keyword"):
             return jsonify({"error": 'search_mode must be "hybrid" or "keyword"'}), 400
         settings["mcp"]["search_mode"] = mode
+
+    # --- activity fields ---
+    if "activity" in data:
+        act = data["activity"]
+        if not isinstance(act, dict):
+            return jsonify({"error": "activity must be an object"}), 400
+        act_settings = settings.get("activity", {})
+        if "decay_halflife_days" in act:
+            v = act["decay_halflife_days"]
+            if not isinstance(v, (int, float)) or v <= 0:
+                return jsonify({"error": "decay_halflife_days must be a positive number"}), 400
+            act_settings["decay_halflife_days"] = float(v)
+        if "recency_window_hours" in act:
+            v = act["recency_window_hours"]
+            if not isinstance(v, (int, float)) or v <= 0:
+                return jsonify({"error": "recency_window_hours must be a positive number"}), 400
+            act_settings["recency_window_hours"] = float(v)
+        if "max_access_boost" in act:
+            v = act["max_access_boost"]
+            if not isinstance(v, (int, float)) or v <= 0:
+                return jsonify({"error": "max_access_boost must be a positive number"}), 400
+            act_settings["max_access_boost"] = float(v)
+        if "activity_sort_default" in act:
+            act_settings["activity_sort_default"] = bool(act["activity_sort_default"])
+        if "show_heat_indicator" in act:
+            act_settings["show_heat_indicator"] = bool(act["show_heat_indicator"])
+        if "excluded_from_scoring" in act:
+            ex = act["excluded_from_scoring"]
+            if not isinstance(ex, list) or not all(isinstance(d, str) for d in ex):
+                return jsonify({"error": "excluded_from_scoring must be a list of strings"}), 400
+            act_settings["excluded_from_scoring"] = ex
+        settings["activity"] = act_settings
 
     save_settings(settings)
     indexer.configure(
