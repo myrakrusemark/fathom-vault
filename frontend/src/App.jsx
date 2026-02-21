@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import FileList from './components/FileList.jsx'
 import FileViewer from './components/FileViewer.jsx'
 import FolderTree from './components/FolderTree.jsx'
+import SearchPanel from './components/SearchPanel.jsx'
 
 export default function App() {
   const [folders, setFolders] = useState([])
@@ -12,6 +13,7 @@ export default function App() {
   const [fileLoading, setFileLoading] = useState(false)
   const [fileError, setFileError] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   // Load folder tree on mount
   useEffect(() => {
@@ -119,6 +121,20 @@ export default function App() {
             </span>
           </>
         )}
+        <button
+          onClick={() => setSearchOpen(o => !o)}
+          className={`ml-auto p-1 rounded hover:bg-base-300 transition-colors ${
+            searchOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
+          }`}
+          aria-label="Toggle search"
+          title="Search vault"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
       </div>
 
       {/* 3-panel layout below header */}
@@ -150,9 +166,20 @@ export default function App() {
             loading={fileLoading}
             error={fileError}
             onWikilinkClick={handleWikilinkClick}
+            onNavigate={navigateToFile}
             onSaved={handleSaved}
           />
         </div>
+
+        {/* Search panel (slides in from right) */}
+        {searchOpen && (
+          <div className="w-[360px] shrink-0 border-l border-base-300 bg-base-200 overflow-y-auto">
+            <SearchPanel
+              onClose={() => setSearchOpen(false)}
+              onNavigate={navigateToFile}
+            />
+          </div>
+        )}
       </div>
     </div>
   )

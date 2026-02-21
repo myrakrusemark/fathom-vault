@@ -1,7 +1,9 @@
-"""Vault browser endpoints: tree, folder listing, file read/write, raw image serving."""
+"""Vault browser endpoints: tree, folder listing, file read/write, raw image serving, search."""
 
 import glob
 import os
+import re
+import subprocess
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, send_from_directory
@@ -158,3 +160,88 @@ def vault_raw(rel_path):
     directory = os.path.dirname(abs_path)
     filename = os.path.basename(abs_path)
     return send_from_directory(directory, filename, as_attachment=False)
+
+
+# --- Search ---
+
+# Pattern: "qmd://collection/path/file.md:line #color"
+_QMD_HEADER_RE = re.compile(r"^qmd://[^/]+/(.+?):\d+\s+#[0-9a-f]+$")
+_TITLE_RE = re.compile(r"^Title:\s+(.+)$")
+_SCORE_RE = re.compile(r"^Score:\s+(\d+)%$")
+_CONTEXT_RE = re.compile(r"^@@\s+")
+
+
+def _parse_qmd_query_output(output: str) -> list[dict]:
+    """Parse qmd query/search rich output into structured results.
+
+    Each result block looks like:
+        qmd://collection/path/file.md:line #color
+        Title: The Title
+        Score: NN%
+
+        @@ -start,count @@ (N before, N after)
+        excerpt lines...
+    """
+    results = []
+    current = None
+
+    for line in output.splitlines():
+        header_match = _QMD_HEADER_RE.match(line)
+        if header_match:
+            if current:
+                current["excerpt"] = current["excerpt"].strip()
+                results.append(current)
+            current = {
+                "file": header_match.group(1),
+                "title": "",
+                "score": 0,
+                "excerpt": "",
+            }
+            continue
+
+        if current is None:
+            continue
+
+        title_match = _TITLE_RE.match(line)
+        if title_match:
+            current["title"] = title_match.group(1)
+            continue
+
+        score_match = _SCORE_RE.match(line)
+        if score_match:
+            current["score"] = int(score_match.group(1))
+            continue
+
+        if _CONTEXT_RE.match(line):
+            continue
+
+        if line.strip():
+            current["excerpt"] += line + " "
+
+    if current:
+        current["excerpt"] = current["excerpt"].strip()
+        results.append(current)
+
+    return results
+
+
+@bp.route("/api/vault/search")
+def vault_search():
+    """Full-text search via qmd query."""
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify({"results": []})
+
+    try:
+        result = subprocess.run(
+            ["qmd", "query", q, "-n", "20"],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        parsed = _parse_qmd_query_output(result.stdout)
+        return jsonify({"results": parsed})
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Search timed out"}), 504
+    except FileNotFoundError:
+        return jsonify({"error": "qmd not found on PATH"}), 500
