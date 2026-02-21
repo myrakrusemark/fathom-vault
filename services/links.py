@@ -8,10 +8,16 @@ from config import VAULT_DIR
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 
 
+def _normalize(name: str) -> str:
+    """Normalize a wikilink name for fuzzy matching: lowercase, spaces→hyphens."""
+    return name.lower().replace(" ", "-")
+
+
 def find_file(name: str) -> str | None:
     """Find a vault file matching a wikilink name. Returns relative path or None.
 
     Matches by filename stem (without .md). Supports 'folder/stem' paths too.
+    Normalizes case and spaces-vs-hyphens so [[On Restraint]] finds on-restraint.md.
     """
     # Strip .md if caller included it
     if name.endswith(".md"):
@@ -25,14 +31,15 @@ def find_file(name: str) -> str | None:
             if os.path.isfile(abs_path):
                 return candidate.replace(os.sep, "/")
 
-    # Walk vault looking for stem match
+    # Walk vault looking for stem match (normalized: case-insensitive, space≈hyphen)
+    norm_name = _normalize(name)
     for root, dirs, files in os.walk(VAULT_DIR):
         dirs[:] = sorted(d for d in dirs if not d.startswith("."))
         for fname in files:
             if not fname.endswith(".md"):
                 continue
             stem = os.path.splitext(fname)[0]
-            if stem == name:
+            if _normalize(stem) == norm_name:
                 rel_root = os.path.relpath(root, VAULT_DIR)
                 if rel_root == ".":
                     return fname

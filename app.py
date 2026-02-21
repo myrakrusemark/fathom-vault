@@ -7,9 +7,21 @@ from config import FRONTEND_DIR, PORT
 
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 
+from routes.settings import bp as settings_bp  # noqa: E402
 from routes.vault import bp as vault_bp  # noqa: E402
 
 app.register_blueprint(vault_bp)
+app.register_blueprint(settings_bp)
+
+# Start background indexer with persisted settings
+from services.indexer import indexer  # noqa: E402
+from services.settings import load_settings  # noqa: E402
+
+_startup_settings = load_settings()
+indexer.configure(
+    _startup_settings["background_index"]["enabled"],
+    _startup_settings["background_index"]["interval_minutes"],
+)
 
 
 @app.route("/")

@@ -3,6 +3,7 @@ import FileList from './components/FileList.jsx'
 import FileViewer from './components/FileViewer.jsx'
 import FolderTree from './components/FolderTree.jsx'
 import SearchPanel from './components/SearchPanel.jsx'
+import SettingsPanel from './components/SettingsPanel.jsx'
 
 export default function App() {
   const [folders, setFolders] = useState([])
@@ -14,6 +15,7 @@ export default function App() {
   const [fileError, setFileError] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Load folder tree on mount
   useEffect(() => {
@@ -104,7 +106,37 @@ export default function App() {
       {/* Header bar */}
       <div className="fixed top-0 left-0 right-0 z-10 h-10 bg-base-200 border-b border-base-300
         flex items-center px-4 gap-3">
-        <span className="text-primary font-semibold text-sm tracking-wide">Fathom Vault</span>
+        <div className="dropdown">
+          <div tabIndex={0} role="button" className="flex items-center gap-1 cursor-pointer select-none">
+            <span className="text-primary font-semibold text-sm tracking-wide">Fathom Vault</span>
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              className="text-primary opacity-60">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </div>
+          <ul tabIndex={0} className="dropdown-content menu bg-base-200 border border-base-300 rounded-box z-20 w-48 p-1 shadow-lg mt-1">
+            <li>
+              <span className="text-primary font-semibold text-sm pointer-events-none">
+                Fathom Vault
+                <span className="ml-auto text-[10px] opacity-50 font-normal">current</span>
+              </span>
+            </li>
+            <li>
+              <a href="https://hifathom.com/dashboard/" target="_blank" rel="noopener noreferrer"
+                className="text-sm flex items-center justify-between">
+                Memento
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className="opacity-50">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
+            </li>
+          </ul>
+        </div>
         {selectedFolder !== null && (
           <>
             <span className="text-neutral-content opacity-40">/</span>
@@ -122,7 +154,7 @@ export default function App() {
           </>
         )}
         <button
-          onClick={() => setSearchOpen(o => !o)}
+          onClick={() => { setSearchOpen(o => !o); setSettingsOpen(false) }}
           className={`ml-auto p-1 rounded hover:bg-base-300 transition-colors ${
             searchOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
           }`}
@@ -133,6 +165,28 @@ export default function App() {
             fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="8" />
             <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
+        <button
+          onClick={() => { setSettingsOpen(o => !o); setSearchOpen(false) }}
+          className={`p-1 rounded hover:bg-base-300 transition-colors ${
+            settingsOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
+          }`}
+          aria-label="Toggle settings"
+          title="Vault settings"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06
+              a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09
+              A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06
+              A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09
+              A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06
+              A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09
+              a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06
+              A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09
+              a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
       </div>
@@ -178,6 +232,13 @@ export default function App() {
               onClose={() => setSearchOpen(false)}
               onNavigate={navigateToFile}
             />
+          </div>
+        )}
+
+        {/* Settings panel (slides in from right) */}
+        {settingsOpen && (
+          <div className="w-[360px] shrink-0 border-l border-base-300 bg-base-200 overflow-y-auto">
+            <SettingsPanel onClose={() => setSettingsOpen(false)} />
           </div>
         )}
       </div>

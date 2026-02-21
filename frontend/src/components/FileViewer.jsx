@@ -1,13 +1,16 @@
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useEffect, useRef, useState } from 'react'
 
 const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp)$/i
 
-// Convert [[Target]] and [[Target|Display]] to markdown links with wl: scheme
+// Convert [[Target]] and [[Target|Display]] to markdown links with wl: scheme.
+// Skips wikilinks inside backtick code spans to avoid rendering raw link syntax.
 function preprocessWikilinks(text) {
-  return text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target, display) =>
-    `[${display || target}](#wl:${encodeURIComponent(target.trim())})`
-  )
+  return text.replace(/`[^`]+`|\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (match, target, display) => {
+    if (!target) return match // backtick span — pass through unchanged
+    return `[${display || target}](#wl:${encodeURIComponent(target.trim())})`
+  })
 }
 
 function FrontmatterBadges({ fm }) {
@@ -69,7 +72,7 @@ function WikiLink({ href, children, onWikilinkClick }) {
   return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
 }
 
-function BacklinksPanel({ filePath }) {
+function BacklinksPanel({ filePath, onNavigate }) {
   const [links, setLinks] = useState(null)
 
   useEffect(() => {
@@ -94,7 +97,11 @@ function BacklinksPanel({ filePath }) {
           </div>
           <div className="flex flex-col gap-1">
             {backlinks.map(path => (
-              <span key={path} className="text-accent opacity-70 text-xs font-mono">
+              <span
+                key={path}
+                className="text-accent opacity-70 text-xs font-mono cursor-pointer hover:opacity-100 hover:underline"
+                onClick={() => onNavigate(path)}
+              >
                 {path}
               </span>
             ))}
@@ -108,7 +115,11 @@ function BacklinksPanel({ filePath }) {
           </div>
           <div className="flex flex-col gap-1">
             {forward_links.map(path => (
-              <span key={path} className="text-accent opacity-70 text-xs font-mono">
+              <span
+                key={path}
+                className="text-accent opacity-70 text-xs font-mono cursor-pointer hover:opacity-100 hover:underline"
+                onClick={() => onNavigate(path)}
+              >
                 {path}
               </span>
             ))}
@@ -214,7 +225,7 @@ function EditorPanel({ filePath, initialContent, onSaved, onCancel }) {
   )
 }
 
-export default function FileViewer({ filePath, data, loading, error, onWikilinkClick, onSaved }) {
+export default function FileViewer({ filePath, data, loading, error, onWikilinkClick, onNavigate, onSaved }) {
   const [editing, setEditing] = useState(false)
 
   // Exit edit mode when file changes
@@ -301,6 +312,7 @@ export default function FileViewer({ filePath, data, loading, error, onWikilinkC
 
       <div className="prose-vault">
         <Markdown
+          remarkPlugins={[remarkGfm]}
           components={{
             img: ({ node, ...props }) => <ImageRenderer {...props} />,
             a: ({ node, href, children, ...props }) => (
@@ -314,7 +326,7 @@ export default function FileViewer({ filePath, data, loading, error, onWikilinkC
         </Markdown>
       </div>
 
-      <BacklinksPanel filePath={filePath} />
+      <BacklinksPanel filePath={filePath} onNavigate={onNavigate} />
     </div>
   )
 }

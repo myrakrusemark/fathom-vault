@@ -81,20 +81,25 @@
 .prose-vault table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 1em;
+  margin: 1em 0;
+  font-size: 0.875rem;
+}
+
+.prose-vault th,
+.prose-vault td {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
 }
 
 .prose-vault th {
-  background: #252545;
-  padding: 0.5em 0.75em;
-  text-align: left;
-  color: #F4A261;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
   font-weight: 600;
 }
 
-.prose-vault td {
-  padding: 0.5em 0.75em;
-  border-bottom: 1px solid #252545;
+.prose-vault tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 /* Scrollbar styling */
