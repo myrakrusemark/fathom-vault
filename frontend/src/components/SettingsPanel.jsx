@@ -134,59 +134,11 @@ export default function SettingsPanel({ onClose }) {
 
         {settings && (
           <>
-            {/* Background indexing section */}
+            {/* Indexing section */}
             <section>
               <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
-                Background Indexing
+                Indexing
               </h3>
-
-              {/* Enabled toggle */}
-              <label className="flex items-center justify-between gap-3 cursor-pointer mb-1">
-                <span className="text-sm text-base-content">Background indexing</span>
-                <input
-                  type="checkbox"
-                  className="toggle toggle-primary toggle-sm"
-                  checked={bi.enabled}
-                  onChange={handleToggle}
-                />
-              </label>
-              <p className="text-xs text-neutral-content opacity-50 mb-3">
-                Indexes automatically at idle priority — won't slow down searches.
-              </p>
-
-              {/* Interval select — only shown when enabled */}
-              {bi.enabled && (
-                <label className="flex items-center justify-between gap-3 mb-3">
-                  <span className="text-sm text-base-content opacity-80">Interval</span>
-                  <select
-                    className="select select-bordered select-sm text-sm bg-base-100"
-                    value={bi.interval_minutes}
-                    onChange={handleInterval}
-                  >
-                    {INTERVAL_OPTIONS.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
-              {/* Last indexed */}
-              {/* tick is used to force re-render every 30s for relative time */}
-              {/* eslint-disable-next-line no-unused-expressions */}
-              <p className="text-xs text-neutral-content opacity-50 mb-4" aria-live="polite">
-                {tick >= 0 && `Last indexed: ${relativeTime(bi.last_indexed)}`}
-              </p>
-
-              {/* Re-index now button */}
-              <button
-                className="btn btn-sm btn-outline mb-4"
-                onClick={handleIndexNow}
-                disabled={indexingNow}
-              >
-                {indexingNow ? 'Indexing…' : 'Re-index now'}
-              </button>
-
-              <div className="divider my-1"></div>
 
               {/* Excluded directories */}
               <div>
@@ -233,6 +185,54 @@ export default function SettingsPanel({ onClose }) {
                   ))}
                 </div>
               </div>
+
+              <div className="divider my-1"></div>
+
+              {/* Enabled toggle */}
+              <label className="flex items-center justify-between gap-3 cursor-pointer mb-1">
+                <span className="text-sm text-base-content">Background indexing</span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-primary toggle-sm"
+                  checked={bi.enabled}
+                  onChange={handleToggle}
+                />
+              </label>
+              <p className="text-xs text-neutral-content opacity-50 mb-3">
+                Indexes automatically at idle priority — won't slow down searches.
+              </p>
+
+              {/* Interval select — only shown when enabled */}
+              {bi.enabled && (
+                <label className="flex items-center justify-between gap-3 mb-3">
+                  <span className="text-sm text-base-content opacity-80">Interval</span>
+                  <select
+                    className="select select-bordered select-sm text-sm bg-base-100"
+                    value={bi.interval_minutes}
+                    onChange={handleInterval}
+                  >
+                    {INTERVAL_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {/* Last indexed */}
+              {/* tick is used to force re-render every 30s for relative time */}
+              {/* eslint-disable-next-line no-unused-expressions */}
+              <p className="text-xs text-neutral-content opacity-50 mb-4" aria-live="polite">
+                {tick >= 0 && `Last indexed: ${relativeTime(bi.last_indexed)}`}
+              </p>
+
+              {/* Re-index now button */}
+              <button
+                className="btn btn-sm btn-outline mb-4"
+                onClick={handleIndexNow}
+                disabled={indexingNow}
+              >
+                {indexingNow ? 'Indexing…' : 'Re-index now'}
+              </button>
             </section>
 
             <div className="divider my-1"></div>
