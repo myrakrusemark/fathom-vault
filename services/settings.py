@@ -10,7 +10,13 @@ _DEFAULTS = {
     "background_index": {
         "enabled": True,
         "interval_minutes": 15,
-    }
+        "excluded_dirs": [],  # skipped by indexer AND filtered from search results
+    },
+    "mcp": {
+        "query_timeout_seconds": 120,
+        "search_results": 10,
+        "search_mode": "hybrid",  # "hybrid" | "keyword"
+    },
 }
 
 
@@ -22,10 +28,14 @@ def load_settings() -> dict:
     except (FileNotFoundError, json.JSONDecodeError):
         saved = {}
 
-    settings = dict(_DEFAULTS)
+    settings = {}
     settings["background_index"] = {
         **_DEFAULTS["background_index"],
         **saved.get("background_index", {}),
+    }
+    settings["mcp"] = {
+        **_DEFAULTS["mcp"],
+        **saved.get("mcp", {}),
     }
     return settings
 

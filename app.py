@@ -21,6 +21,7 @@ _startup_settings = load_settings()
 indexer.configure(
     _startup_settings["background_index"]["enabled"],
     _startup_settings["background_index"]["interval_minutes"],
+    _startup_settings["background_index"]["excluded_dirs"],
 )
 
 

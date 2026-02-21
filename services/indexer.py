@@ -12,13 +12,15 @@ class BackgroundIndexer:
         self._timer = None
         self._enabled = False
         self._interval = 15  # minutes
+        self._excluded_dirs: list[str] = []
         self._last_indexed = None
         self._lock = threading.Lock()
 
-    def configure(self, enabled: bool, interval_minutes: int) -> None:
+    def configure(self, enabled: bool, interval_minutes: int, excluded_dirs: list[str] | None = None) -> None:
         with self._lock:
             self._enabled = enabled
             self._interval = interval_minutes
+            self._excluded_dirs = excluded_dirs or []
             self._cancel()
             if enabled:
                 self._schedule()
@@ -58,6 +60,7 @@ class BackgroundIndexer:
         return {
             "enabled": self._enabled,
             "interval_minutes": self._interval,
+            "excluded_dirs": self._excluded_dirs,
             "last_indexed": self._last_indexed,
         }
 
