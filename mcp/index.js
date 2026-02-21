@@ -180,6 +180,142 @@ function handleVaultRead({ path: relPath }) {
   }
 }
 
+// --- List/folder handlers --------------------------------------------------
+
+function handleVaultList({ include_root_files = false } = {}) {
+  void include_root_files; // reserved for future use
+  const allFolders = [];
+
+  function scanDir(dirAbs, relPath) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dirAbs, { withFileTypes: true });
+    } catch {
+      return { totalMdCount: 0, maxMtime: null, maxMtimeFile: null };
+    }
+
+    const childDirNames = entries
+      .filter(e => e.isDirectory() && !e.name.startsWith("."))
+      .map(e => e.name);
+    const mdFiles = entries
+      .filter(e => e.isFile() && e.name.endsWith(".md"))
+      .map(e => e.name);
+
+    let maxMtime = null;
+    let maxMtimeFile = null;
+    let totalMdCount = mdFiles.length;
+
+    for (const fname of mdFiles) {
+      try {
+        const mtime = fs.statSync(path.join(dirAbs, fname)).mtime;
+        if (!maxMtime || mtime > maxMtime) {
+          maxMtime = mtime;
+          maxMtimeFile = fname;
+        }
+      } catch { /* skip */ }
+    }
+
+    for (const childName of childDirNames) {
+      const childAbs = path.join(dirAbs, childName);
+      const childRel = relPath ? `${relPath}/${childName}` : childName;
+      const child = scanDir(childAbs, childRel);
+      totalMdCount += child.totalMdCount;
+      if (child.maxMtime && (!maxMtime || child.maxMtime > maxMtime)) {
+        maxMtime = child.maxMtime;
+        maxMtimeFile = child.maxMtimeFile;
+      }
+    }
+
+    if (relPath) {
+      allFolders.push({
+        name: path.basename(dirAbs),
+        path: relPath,
+        file_count: totalMdCount,
+        last_modified: maxMtime ? maxMtime.toISOString() : null,
+        last_modified_file: maxMtimeFile,
+        children: childDirNames,
+      });
+    }
+
+    return { totalMdCount, maxMtime, maxMtimeFile };
+  }
+
+  try {
+    scanDir(VAULT_PATH, "");
+    allFolders.sort((a, b) => {
+      if (!a.last_modified && !b.last_modified) return 0;
+      if (!a.last_modified) return 1;
+      if (!b.last_modified) return -1;
+      return b.last_modified.localeCompare(a.last_modified);
+    });
+    return allFolders;
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+function handleVaultFolder({ folder = "", limit = 50, sort = "modified", recursive = false, tag } = {}) {
+  const targetAbs = folder ? path.resolve(VAULT_PATH, folder) : VAULT_PATH;
+  if (targetAbs !== VAULT_PATH && !targetAbs.startsWith(VAULT_PATH + path.sep)) {
+    return { error: "Path traversal detected" };
+  }
+  if (!fs.existsSync(targetAbs)) return { error: `Folder not found: ${folder || "(root)"}` };
+  if (!fs.statSync(targetAbs).isDirectory()) return { error: `Not a directory: ${folder}` };
+
+  const items = [];
+  const tagLower = tag ? tag.toLowerCase() : null;
+
+  function collect(dirAbs) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dirAbs, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const absPath = path.join(dirAbs, e.name);
+      if (e.isDirectory() && recursive && !e.name.startsWith(".")) {
+        collect(absPath);
+      } else if (e.isFile() && e.name.endsWith(".md")) {
+        try {
+          const stat = fs.statSync(absPath);
+          const content = fs.readFileSync(absPath, "utf-8");
+          const { fm, body } = parseFrontmatter(content);
+
+          if (tagLower) {
+            const fmTags = Array.isArray(fm.tags) ? fm.tags : [];
+            if (!fmTags.some(t => String(t).toLowerCase() === tagLower)) continue;
+          }
+
+          items.push({
+            path: path.relative(VAULT_PATH, absPath),
+            title: fm.title || null,
+            date: fm.date || null,
+            tags: Array.isArray(fm.tags) ? fm.tags : [],
+            status: fm.status || null,
+            project: fm.project || null,
+            preview: body.trim().slice(0, 200),
+            modified: stat.mtime.toISOString(),
+            size_bytes: stat.size,
+          });
+        } catch { /* skip */ }
+      }
+    }
+  }
+
+  try {
+    collect(targetAbs);
+    if (sort === "name") {
+      items.sort((a, b) => a.path.localeCompare(b.path));
+    } else {
+      items.sort((a, b) => b.modified.localeCompare(a.modified));
+    }
+    return { folder: folder || "", total: items.length, files: items.slice(0, limit) };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 // --- Image handlers --------------------------------------------------------
 
 function handleVaultImage({ path: relPath }) {
@@ -309,6 +445,59 @@ const tools = [
     },
   },
   {
+    name: "fathom_vault_list",
+    description:
+      "List all vault folders with file counts and activity signals (last modified file per " +
+      "folder). Sorted by most recently active. Use this first to orient in the vault before " +
+      "diving into a specific folder.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        include_root_files: {
+          type: "boolean",
+          description: "Reserved for future use. Default: false.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "fathom_vault_folder",
+    description:
+      "List files in a vault folder with frontmatter metadata (title, date, tags, status) and " +
+      "content previews. Sorted by modification time by default (newest first). Supports limit, " +
+      "recursive listing, and tag filtering. Use fathom_vault_list first to find the right folder.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        folder: {
+          type: "string",
+          description:
+            "Relative folder path, e.g. 'thinking' or 'research/navier-stokes'. " +
+            "Use empty string for vault root.",
+        },
+        limit: {
+          type: "integer",
+          description: "Max files to return. Default: 50.",
+        },
+        sort: {
+          type: "string",
+          enum: ["modified", "name"],
+          description: "Sort order. Default: 'modified' (newest first).",
+        },
+        recursive: {
+          type: "boolean",
+          description: "Include files from subfolders. Default: false.",
+        },
+        tag: {
+          type: "string",
+          description: "Filter by tag (frontmatter tags array). Optional.",
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: "fathom_vault_image",
     description:
       "Read a vault image file and return it as base64 so Claude can perceive it. " +
@@ -372,6 +561,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       break;
     case "fathom_vault_read":
       result = handleVaultRead(args);
+      break;
+    case "fathom_vault_list":
+      result = handleVaultList(args);
+      break;
+    case "fathom_vault_folder":
+      result = handleVaultFolder(args);
       break;
     case "fathom_vault_image":
       result = handleVaultImage(args);
