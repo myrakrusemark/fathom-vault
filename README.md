@@ -11,7 +11,22 @@ pip install -r requirements.txt
 cd mcp && npm install && cd ..
 ```
 
-Edit `config.py` and `mcp/index.js` to set your vault path.
+## Configure your vault path
+
+Edit `config.py` to point at your vault directory:
+
+```python
+VAULT_DIR = "/path/to/your/vault"
+PORT = 4243
+```
+
+Also update the path at the top of `mcp/index.js`:
+
+```js
+const VAULT_PATH = "/path/to/your/vault";
+```
+
+Both must point to the same directory. If you want to get started quickly, point both at the included `vault/` directory — it contains the full documentation for Fathom Vault itself.
 
 ## Run
 
@@ -53,7 +68,7 @@ pytest
 
 ## Documentation
 
-Full user documentation lives in the vault itself at `documentation/fathom-vault/`:
+Full documentation lives in `vault/documentation/fathom-vault/`:
 
 - `index.md` — overview and architecture
 - `mcp-tools.md` — all MCP tools, parameters, and return shapes
