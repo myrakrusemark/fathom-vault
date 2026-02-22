@@ -17,6 +17,17 @@ _DEFAULTS = {
         "search_results": 10,
         "search_mode": "hybrid",  # "hybrid" | "keyword"
     },
+    "activity": {
+        "decay_halflife_days": 7,
+        "recency_window_hours": 48,
+        "max_access_boost": 2.0,
+        "activity_sort_default": False,
+        "show_heat_indicator": True,
+        "excluded_from_scoring": ["daily"],
+    },
+    "terminal": {
+        "working_dir": "/data/Dropbox/Work",
+    },
 }
 
 
@@ -36,6 +47,14 @@ def load_settings() -> dict:
     settings["mcp"] = {
         **_DEFAULTS["mcp"],
         **saved.get("mcp", {}),
+    }
+    settings["activity"] = {
+        **_DEFAULTS["activity"],
+        **saved.get("activity", {}),
+    }
+    settings["terminal"] = {
+        **_DEFAULTS["terminal"],
+        **saved.get("terminal", {}),
     }
     return settings
 

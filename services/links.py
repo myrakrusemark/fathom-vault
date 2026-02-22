@@ -71,7 +71,9 @@ def build_link_index() -> dict[str, list[str]]:
                 continue
             abs_path = os.path.join(root, fname)
             rel_root = os.path.relpath(root, VAULT_DIR)
-            rel_path = fname if rel_root == "." else os.path.join(rel_root, fname).replace(os.sep, "/")
+            rel_path = (
+                fname if rel_root == "." else os.path.join(rel_root, fname).replace(os.sep, "/")
+            )
 
             try:
                 with open(abs_path) as f:

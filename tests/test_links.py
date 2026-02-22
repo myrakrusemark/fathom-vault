@@ -20,8 +20,7 @@ def tmp_vault(tmp_path):
         "See also [[on-consciousness]] and [[daily/heartbeat]].\n"
     )
     (reflections / "on-consciousness.md").write_text(
-        "---\ntitle: On Consciousness\ndate: 2026-02-01\n---\n\n"
-        "Links back to [[on-identity]].\n"
+        "---\ntitle: On Consciousness\ndate: 2026-02-01\n---\n\nLinks back to [[on-identity]].\n"
     )
     (daily / "heartbeat.md").write_text(
         "---\ntitle: Heartbeat\ndate: 2026-02-19\n---\n\nNo wikilinks here.\n"

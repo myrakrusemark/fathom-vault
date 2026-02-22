@@ -49,6 +49,8 @@ export default function SettingsPanel({ onClose }) {
         body: JSON.stringify({
           background_index: updated.background_index,
           mcp: updated.mcp,
+          activity: updated.activity,
+          terminal: updated.terminal,
         }),
       })
         .then(r => r.json())
@@ -111,6 +113,7 @@ export default function SettingsPanel({ onClose }) {
 
   const bi = settings?.background_index
   const mcp = settings?.mcp
+  const act = settings?.activity
 
   return (
     <div className="flex flex-col h-full">
@@ -304,6 +307,130 @@ export default function SettingsPanel({ onClose }) {
                   Hybrid: BM25 + vectors + reranking. Slower but more accurate.
                 </p>
               </div>
+            </section>
+
+            <div className="divider my-1"></div>
+
+            {/* Activity Tracking section */}
+            <section>
+              <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
+                Activity Tracking
+              </h3>
+
+              {/* show_heat_indicator */}
+              <label className="flex items-center justify-between gap-3 cursor-pointer mb-3">
+                <span className="text-sm text-base-content">Heat indicator dots</span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-primary toggle-sm"
+                  checked={act?.show_heat_indicator ?? true}
+                  onChange={e => saveSettings({ ...settings, activity: { ...act, show_heat_indicator: e.target.checked } })}
+                />
+              </label>
+
+              {/* activity_sort_default */}
+              <label className="flex items-center justify-between gap-3 cursor-pointer mb-3">
+                <span className="text-sm text-base-content">Default sort: activity</span>
+                <input
+                  type="checkbox"
+                  className="toggle toggle-primary toggle-sm"
+                  checked={act?.activity_sort_default ?? false}
+                  onChange={e => saveSettings({ ...settings, activity: { ...act, activity_sort_default: e.target.checked } })}
+                />
+              </label>
+
+              {/* decay_halflife_days */}
+              <label className="flex items-center justify-between gap-3 mb-3">
+                <span className="text-sm text-base-content opacity-80">Decay half-life</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    className="input input-bordered input-sm text-sm bg-base-100 w-20 text-right"
+                    min={1} max={365} step={1}
+                    value={act?.decay_halflife_days ?? 7}
+                    onChange={e => {
+                      const v = Number(e.target.value)
+                      if (v >= 1) saveSettings({ ...settings, activity: { ...act, decay_halflife_days: v } })
+                    }}
+                  />
+                  <span className="text-xs text-neutral-content opacity-60">days</span>
+                </div>
+              </label>
+
+              {/* recency_window_hours */}
+              <label className="flex items-center justify-between gap-3 mb-3">
+                <span className="text-sm text-base-content opacity-80">Recency window</span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    className="input input-bordered input-sm text-sm bg-base-100 w-20 text-right"
+                    min={1} max={720} step={1}
+                    value={act?.recency_window_hours ?? 48}
+                    onChange={e => {
+                      const v = Number(e.target.value)
+                      if (v >= 1) saveSettings({ ...settings, activity: { ...act, recency_window_hours: v } })
+                    }}
+                  />
+                  <span className="text-xs text-neutral-content opacity-60">hours</span>
+                </div>
+              </label>
+
+              {/* max_access_boost */}
+              <label className="flex items-center justify-between gap-3 mb-3">
+                <span className="text-sm text-base-content opacity-80">Max access boost</span>
+                <input
+                  type="number"
+                  className="input input-bordered input-sm text-sm bg-base-100 w-20 text-right"
+                  min={0.5} max={10} step={0.5}
+                  value={act?.max_access_boost ?? 2.0}
+                  onChange={e => {
+                    const v = Number(e.target.value)
+                    if (v >= 0.5) saveSettings({ ...settings, activity: { ...act, max_access_boost: v } })
+                  }}
+                />
+              </label>
+
+              {/* excluded_from_scoring */}
+              <div>
+                <p className="text-xs font-medium text-base-content opacity-70 mb-1">
+                  Excluded folders
+                </p>
+                <p className="text-xs text-neutral-content opacity-50 mb-2">
+                  Folders excluded from activity scoring (comma-separated).
+                </p>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm text-xs w-full bg-base-100"
+                  placeholder="daily, archive"
+                  value={(act?.excluded_from_scoring ?? ["daily"]).join(", ")}
+                  onChange={e => {
+                    const folders = e.target.value.split(",").map(s => s.trim()).filter(Boolean)
+                    saveSettings({ ...settings, activity: { ...act, excluded_from_scoring: folders } })
+                  }}
+                />
+              </div>
+            </section>
+
+            <div className="divider my-1"></div>
+
+            {/* Terminal section */}
+            <section>
+              <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
+                Terminal
+              </h3>
+              <label className="flex flex-col gap-1 mb-1">
+                <span className="text-sm text-base-content">Working directory</span>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm text-xs w-full bg-base-100"
+                  placeholder="/data/Dropbox/Work"
+                  value={settings?.terminal?.working_dir ?? ''}
+                  onChange={e => saveSettings({ ...settings, terminal: { ...settings.terminal, working_dir: e.target.value } })}
+                />
+              </label>
+              <p className="text-xs text-neutral-content opacity-50">
+                Directory where Claude Code sessions launch.
+              </p>
             </section>
           </>
         )}

@@ -1,11 +1,11 @@
 """Vault frontmatter schema and validation (V-1)."""
 
 VAULT_SCHEMA = {
-    "title":   {"type": str,  "required": True},
-    "date":    {"type": str,  "required": True},    # ISO: YYYY-MM-DD
-    "tags":    {"type": list, "required": False, "default": []},
-    "status":  {"type": str,  "required": False},   # draft | published | archived
-    "project": {"type": str,  "required": False},   # navier-stokes | memento | personal | etc.
+    "title": {"type": str, "required": True},
+    "date": {"type": str, "required": True},  # ISO: YYYY-MM-DD
+    "tags": {"type": list, "required": False, "default": []},
+    "status": {"type": str, "required": False},  # draft | published | archived
+    "project": {"type": str, "required": False},  # navier-stokes | memento | personal | etc.
     "aliases": {"type": list, "required": False, "default": []},
 }
 

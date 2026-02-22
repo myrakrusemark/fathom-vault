@@ -8,8 +8,40 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from "fs";
 import path from "path";
+import Database from "better-sqlite3";
+import { fileURLToPath } from "url";
 
-const VAULT_PATH = "/data/Dropbox/Work/fathom/vault";
+const VAULT_PATH = "/data/Dropbox/Work/vault";
+
+// Access tracking — same SQLite DB as services/access.py
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DB_PATH = path.join(__dirname, "..", "data", "access.db");
+
+function recordAccess(relPath) {
+  try {
+    const db = new Database(DB_PATH);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS file_access (
+        path         TEXT PRIMARY KEY,
+        open_count   INTEGER NOT NULL DEFAULT 0,
+        last_opened  REAL    NOT NULL,
+        first_opened REAL    NOT NULL
+      )
+    `);
+    const now = Date.now() / 1000;
+    db.prepare(`
+      INSERT INTO file_access (path, open_count, last_opened, first_opened)
+      VALUES (?, 1, ?, ?)
+      ON CONFLICT(path) DO UPDATE SET
+        open_count  = open_count + 1,
+        last_opened = excluded.last_opened
+    `).run(relPath, now, now);
+    db.close();
+  } catch (e) {
+    // never crash the MCP over a tracking failure
+  }
+}
+
 const VALID_STATUSES = new Set(["draft", "published", "archived"]);
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"]);
 const IMAGE_MIME_TYPES = {
@@ -122,6 +154,7 @@ function handleVaultWrite({ path: relPath, content }) {
   try {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, content, "utf-8");
+    recordAccess(relPath);
     return { ok: true, path: relPath };
   } catch (e) {
     return { error: e.message };
@@ -149,6 +182,7 @@ function handleVaultAppend({ path: relPath, content }) {
     } else {
       fs.appendFileSync(abs, "\n" + content + "\n", "utf-8");
     }
+    recordAccess(relPath);
     return { ok: true, path: relPath, created };
   } catch (e) {
     return { error: e.message };
@@ -167,6 +201,7 @@ function handleVaultRead({ path: relPath }) {
     const content = fs.readFileSync(abs, "utf-8");
     const stat = fs.statSync(abs);
     const { fm, body } = parseFrontmatter(content);
+    recordAccess(relPath);
     return {
       path: relPath,
       content,
