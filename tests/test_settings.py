@@ -28,6 +28,9 @@ def client(tmp_path):
                     "search_results": 10,
                     "search_mode": "hybrid",
                 },
+                "terminal": {
+                    "working_dir": "/data/Dropbox/Work",
+                },
             }
 
     def fake_save(s):
@@ -166,3 +169,43 @@ def test_post_accepts_empty_excluded_dirs(client):
     )
     assert resp.status_code == 200
     assert resp.get_json()["background_index"]["excluded_dirs"] == []
+
+
+# ---------------------------------------------------------------------------
+# POST /api/settings — terminal fields
+# ---------------------------------------------------------------------------
+
+
+def test_post_updates_terminal_working_dir(client):
+    resp = client.post(
+        "/api/settings",
+        json={"terminal": {"working_dir": "/home/myra"}},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["terminal"]["working_dir"] == "/home/myra"
+
+
+def test_post_rejects_terminal_not_a_dict(client):
+    resp = client.post(
+        "/api/settings",
+        json={"terminal": "bad"},
+    )
+    assert resp.status_code == 400
+    assert "terminal" in resp.get_json()["error"]
+
+
+def test_post_rejects_terminal_working_dir_not_a_string(client):
+    resp = client.post(
+        "/api/settings",
+        json={"terminal": {"working_dir": 42}},
+    )
+    assert resp.status_code == 400
+    assert "working_dir" in resp.get_json()["error"]
+
+
+def test_get_settings_returns_terminal_defaults(client):
+    resp = client.get("/api/settings")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert "terminal" in data
+    assert data["terminal"]["working_dir"] == "/data/Dropbox/Work"

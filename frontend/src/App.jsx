@@ -5,6 +5,7 @@ import FolderTree from './components/FolderTree.jsx'
 import ActiveFilesPanel from './components/ActiveFilesPanel.jsx'
 import SearchPanel from './components/SearchPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
+import TerminalPanel from './components/TerminalPanel.jsx'
 
 export default function App() {
   const [folders, setFolders] = useState([])
@@ -18,6 +19,7 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeFilesOpen, setActiveFilesOpen] = useState(false)
+  const [terminalOpen, setTerminalOpen] = useState(false)
   const [sortBy, setSortBy] = useState('modified')
   const [showHeatDots, setShowHeatDots] = useState(true)
 
@@ -65,13 +67,6 @@ export default function App() {
       setFileLoading(false)
       return
     }
-
-    // Fire-and-forget: record access for activity tracking
-    fetch('/api/vault/access', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: selectedFile }),
-    }).catch(() => {}) // never block the UI
 
     setFileLoading(true)
     setFileError(null)
@@ -177,7 +172,7 @@ export default function App() {
           </>
         )}
         <button
-          onClick={() => { setActiveFilesOpen(o => !o); setSearchOpen(false); setSettingsOpen(false) }}
+          onClick={() => { setActiveFilesOpen(o => !o); setSearchOpen(false); setSettingsOpen(false); setTerminalOpen(false) }}
           className={`ml-auto p-1 rounded hover:bg-base-300 transition-colors ${
             activeFilesOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
           }`}
@@ -193,7 +188,7 @@ export default function App() {
           </svg>
         </button>
         <button
-          onClick={() => { setSearchOpen(o => !o); setSettingsOpen(false) }}
+          onClick={() => { setSearchOpen(o => !o); setSettingsOpen(false); setTerminalOpen(false) }}
           className={`p-1 rounded hover:bg-base-300 transition-colors ${
             searchOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
           }`}
@@ -207,7 +202,21 @@ export default function App() {
           </svg>
         </button>
         <button
-          onClick={() => { setSettingsOpen(o => !o); setSearchOpen(false) }}
+          onClick={() => { setTerminalOpen(o => !o); setSearchOpen(false); setSettingsOpen(false); setActiveFilesOpen(false) }}
+          className={`p-1 rounded hover:bg-base-300 transition-colors ${
+            terminalOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
+          }`}
+          aria-label="Toggle terminal"
+          title="Claude Agent"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+            fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
+        </button>
+        <button
+          onClick={() => { setSettingsOpen(o => !o); setSearchOpen(false); setTerminalOpen(false) }}
           className={`p-1 rounded hover:bg-base-300 transition-colors ${
             settingsOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
           }`}
@@ -231,7 +240,7 @@ export default function App() {
       </div>
 
       {/* 3-panel layout below header */}
-      <div className="flex flex-1 pt-10 overflow-hidden">
+      <div className="relative flex flex-1 pt-10 overflow-hidden">
         {/* Left panel: folder tree */}
         <div className="w-60 shrink-0 bg-base-200 border-r border-base-300 overflow-y-auto">
           <FolderTree
@@ -254,7 +263,7 @@ export default function App() {
           />
         </div>
 
-        {/* Right panel: file viewer */}
+        {/* Right panel: file viewer — always full width */}
         <div className="flex-1 overflow-y-auto bg-base-100">
           <FileViewer
             filePath={selectedFile}
@@ -267,9 +276,9 @@ export default function App() {
           />
         </div>
 
-        {/* Active Files panel (slides in from right) */}
+        {/* Overlay panels — absolute over content, don't push layout */}
         {activeFilesOpen && (
-          <div className="w-[360px] shrink-0 border-l border-base-300 bg-base-200 overflow-y-auto">
+          <div className="fixed right-0 top-10 bottom-0 w-[360px] border-l border-base-300 bg-base-200 overflow-y-auto z-20 shadow-xl">
             <ActiveFilesPanel
               onClose={() => setActiveFilesOpen(false)}
               onNavigate={(path) => { navigateToFile(path); setActiveFilesOpen(false) }}
@@ -277,9 +286,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Search panel (slides in from right) */}
         {searchOpen && (
-          <div className="w-[360px] shrink-0 border-l border-base-300 bg-base-200 overflow-y-auto">
+          <div className="fixed right-0 top-10 bottom-0 w-[360px] border-l border-base-300 bg-base-200 overflow-y-auto z-20 shadow-xl">
             <SearchPanel
               onClose={() => setSearchOpen(false)}
               onNavigate={navigateToFile}
@@ -287,10 +295,18 @@ export default function App() {
           </div>
         )}
 
-        {/* Settings panel (slides in from right) */}
         {settingsOpen && (
-          <div className="w-[360px] shrink-0 border-l border-base-300 bg-base-200 overflow-y-auto">
+          <div className="fixed right-0 top-10 bottom-0 w-[360px] border-l border-base-300 bg-base-200 overflow-y-auto z-20 shadow-xl">
             <SettingsPanel onClose={() => setSettingsOpen(false)} />
+          </div>
+        )}
+
+        {terminalOpen && (
+          <div className="fixed right-0 top-10 bottom-0 w-[520px] border-l border-base-300 bg-base-200 overflow-hidden z-20 shadow-xl">
+            <TerminalPanel
+              onClose={() => setTerminalOpen(false)}
+              filePath={selectedFile}
+            />
           </div>
         )}
       </div>

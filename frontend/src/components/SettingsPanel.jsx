@@ -50,6 +50,7 @@ export default function SettingsPanel({ onClose }) {
           background_index: updated.background_index,
           mcp: updated.mcp,
           activity: updated.activity,
+          terminal: updated.terminal,
         }),
       })
         .then(r => r.json())
@@ -408,6 +409,28 @@ export default function SettingsPanel({ onClose }) {
                   }}
                 />
               </div>
+            </section>
+
+            <div className="divider my-1"></div>
+
+            {/* Terminal section */}
+            <section>
+              <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
+                Terminal
+              </h3>
+              <label className="flex flex-col gap-1 mb-1">
+                <span className="text-sm text-base-content">Working directory</span>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm text-xs w-full bg-base-100"
+                  placeholder="/data/Dropbox/Work"
+                  value={settings?.terminal?.working_dir ?? ''}
+                  onChange={e => saveSettings({ ...settings, terminal: { ...settings.terminal, working_dir: e.target.value } })}
+                />
+              </label>
+              <p className="text-xs text-neutral-content opacity-50">
+                Directory where Claude Code sessions launch.
+              </p>
             </section>
           </>
         )}

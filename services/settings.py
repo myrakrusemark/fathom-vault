@@ -25,6 +25,9 @@ _DEFAULTS = {
         "show_heat_indicator": True,
         "excluded_from_scoring": ["daily"],
     },
+    "terminal": {
+        "working_dir": "/data/Dropbox/Work",
+    },
 }
 
 
@@ -48,6 +51,10 @@ def load_settings() -> dict:
     settings["activity"] = {
         **_DEFAULTS["activity"],
         **saved.get("activity", {}),
+    }
+    settings["terminal"] = {
+        **_DEFAULTS["terminal"],
+        **saved.get("terminal", {}),
     }
     return settings
 

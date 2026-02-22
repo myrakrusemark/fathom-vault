@@ -95,6 +95,19 @@ def update_settings():
             act_settings["excluded_from_scoring"] = ex
         settings["activity"] = act_settings
 
+    # --- terminal fields ---
+    if "terminal" in data:
+        term = data["terminal"]
+        if not isinstance(term, dict):
+            return jsonify({"error": "terminal must be an object"}), 400
+        term_settings = settings.get("terminal", {})
+        if "working_dir" in term:
+            d = term["working_dir"]
+            if not isinstance(d, str):
+                return jsonify({"error": "working_dir must be a string"}), 400
+            term_settings["working_dir"] = d
+        settings["terminal"] = term_settings
+
     save_settings(settings)
     indexer.configure(
         settings["background_index"]["enabled"],
