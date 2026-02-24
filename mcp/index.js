@@ -8,34 +8,87 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import fs from "fs";
 import path from "path";
+import os from "os";
+import { execFileSync } from "child_process";
 import Database from "better-sqlite3";
 import { fileURLToPath } from "url";
 
-const VAULT_PATH = "/data/Dropbox/Work/vault";
+// --- Workspace resolution ----------------------------------------------------
+
+const SETTINGS_PATH = path.join(os.homedir(), ".config/fathom-vault/settings.json");
+const DEFAULT_VAULT_PATH = "/data/Dropbox/Work/vault";
+
+let _settings = null;
+let _settingsMtime = 0;
+
+function loadSettings() {
+  try {
+    const stat = fs.statSync(SETTINGS_PATH);
+    if (!_settings || stat.mtimeMs !== _settingsMtime) {
+      _settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, "utf-8"));
+      _settingsMtime = stat.mtimeMs;
+    }
+  } catch {
+    if (!_settings) _settings = {};
+  }
+  return _settings;
+}
+
+function resolveVaultPath(workspace) {
+  const settings = loadSettings();
+  const workspaces = settings.workspaces || {};
+
+  if (!workspace) {
+    const defaultWs = settings.default_workspace;
+    if (defaultWs && workspaces[defaultWs]) {
+      return workspaces[defaultWs];
+    }
+    return DEFAULT_VAULT_PATH;
+  }
+
+  const wsPath = workspaces[workspace];
+  if (!wsPath) {
+    return { error: `Unknown workspace: "${workspace}". Available: ${Object.keys(workspaces).join(", ") || "(none configured)"}` };
+  }
+  return wsPath;
+}
 
 // Access tracking — same SQLite DB as services/access.py
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(__dirname, "..", "data", "access.db");
 
-function recordAccess(relPath) {
+function recordAccess(relPath, workspace) {
   try {
     const db = new Database(DB_PATH);
+    // Create v2 table with workspace-scoped primary key
     db.exec(`
-      CREATE TABLE IF NOT EXISTS file_access (
-        path         TEXT PRIMARY KEY,
+      CREATE TABLE IF NOT EXISTS file_access_v2 (
+        path         TEXT NOT NULL,
+        workspace    TEXT NOT NULL DEFAULT 'fathom',
         open_count   INTEGER NOT NULL DEFAULT 0,
         last_opened  REAL    NOT NULL,
-        first_opened REAL    NOT NULL
+        first_opened REAL    NOT NULL,
+        PRIMARY KEY (path, workspace)
       )
     `);
+    // Migrate old data if old table exists and new one is empty
+    try {
+      const oldCount = db.prepare("SELECT COUNT(*) as c FROM file_access").get();
+      const newCount = db.prepare("SELECT COUNT(*) as c FROM file_access_v2").get();
+      if (oldCount.c > 0 && newCount.c === 0) {
+        db.exec("INSERT INTO file_access_v2 (path, workspace, open_count, last_opened, first_opened) SELECT path, 'fathom', open_count, last_opened, first_opened FROM file_access");
+      }
+    } catch { /* old table might not exist */ }
+
     const now = Date.now() / 1000;
+    const ws = workspace || "fathom";
     db.prepare(`
-      INSERT INTO file_access (path, open_count, last_opened, first_opened)
-      VALUES (?, 1, ?, ?)
-      ON CONFLICT(path) DO UPDATE SET
+      INSERT INTO file_access_v2 (path, workspace, open_count, last_opened, first_opened)
+      VALUES (?, ?, 1, ?, ?)
+      ON CONFLICT(path, workspace) DO UPDATE SET
         open_count  = open_count + 1,
         last_opened = excluded.last_opened
-    `).run(relPath, now, now);
+    `).run(relPath, ws, now, now);
     db.close();
   } catch (e) {
     // never crash the MCP over a tracking failure
@@ -64,12 +117,16 @@ const VAULT_SCHEMA = {
 
 // --- Path safety -----------------------------------------------------------
 
-function safePath(relPath) {
-  const abs = path.resolve(VAULT_PATH, relPath);
-  if (abs !== VAULT_PATH && !abs.startsWith(VAULT_PATH + path.sep)) {
+function safePath(relPath, workspace) {
+  const vaultPath = resolveVaultPath(workspace);
+  if (typeof vaultPath === "object" && vaultPath.error) {
+    return vaultPath;
+  }
+  const abs = path.resolve(vaultPath, relPath);
+  if (abs !== vaultPath && !abs.startsWith(vaultPath + path.sep)) {
     return { error: "Path traversal detected" };
   }
-  return { abs };
+  return { abs, vaultPath };
 }
 
 // --- Frontmatter -----------------------------------------------------------
@@ -133,11 +190,11 @@ function validateFrontmatter(fm) {
 
 // --- Tool handlers ---------------------------------------------------------
 
-function handleVaultWrite({ path: relPath, content }) {
+function handleVaultWrite({ path: relPath, content, workspace }) {
   if (!relPath) return { error: "path is required" };
   if (typeof content !== "string") return { error: "content must be a string" };
 
-  const { abs, error } = safePath(relPath);
+  const { abs, error } = safePath(relPath, workspace);
   if (error) return { error };
 
   // Validate frontmatter if present
@@ -154,18 +211,18 @@ function handleVaultWrite({ path: relPath, content }) {
   try {
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, content, "utf-8");
-    recordAccess(relPath);
+    recordAccess(relPath, workspace);
     return { ok: true, path: relPath };
   } catch (e) {
     return { error: e.message };
   }
 }
 
-function handleVaultAppend({ path: relPath, content }) {
+function handleVaultAppend({ path: relPath, content, workspace }) {
   if (!relPath) return { error: "path is required" };
   if (typeof content !== "string") return { error: "content must be a string" };
 
-  const { abs, error } = safePath(relPath);
+  const { abs, error } = safePath(relPath, workspace);
   if (error) return { error };
 
   const created = !fs.existsSync(abs);
@@ -182,17 +239,17 @@ function handleVaultAppend({ path: relPath, content }) {
     } else {
       fs.appendFileSync(abs, "\n" + content + "\n", "utf-8");
     }
-    recordAccess(relPath);
+    recordAccess(relPath, workspace);
     return { ok: true, path: relPath, created };
   } catch (e) {
     return { error: e.message };
   }
 }
 
-function handleVaultRead({ path: relPath }) {
+function handleVaultRead({ path: relPath, workspace }) {
   if (!relPath) return { error: "path is required" };
 
-  const { abs, error } = safePath(relPath);
+  const { abs, error } = safePath(relPath, workspace);
   if (error) return { error };
 
   if (!fs.existsSync(abs)) return { error: "File not found" };
@@ -201,7 +258,7 @@ function handleVaultRead({ path: relPath }) {
     const content = fs.readFileSync(abs, "utf-8");
     const stat = fs.statSync(abs);
     const { fm, body } = parseFrontmatter(content);
-    recordAccess(relPath);
+    recordAccess(relPath, workspace);
     return {
       path: relPath,
       content,
@@ -217,8 +274,11 @@ function handleVaultRead({ path: relPath }) {
 
 // --- List/folder handlers --------------------------------------------------
 
-function handleVaultList({ include_root_files = false } = {}) {
+function handleVaultList({ include_root_files, workspace } = {}) {
   void include_root_files; // reserved for future use
+  const vaultPath = resolveVaultPath(workspace);
+  if (typeof vaultPath === "object" && vaultPath.error) return vaultPath;
+
   const allFolders = [];
 
   function scanDir(dirAbs, relPath) {
@@ -276,7 +336,7 @@ function handleVaultList({ include_root_files = false } = {}) {
   }
 
   try {
-    scanDir(VAULT_PATH, "");
+    scanDir(vaultPath, "");
     allFolders.sort((a, b) => {
       if (!a.last_modified && !b.last_modified) return 0;
       if (!a.last_modified) return 1;
@@ -289,9 +349,12 @@ function handleVaultList({ include_root_files = false } = {}) {
   }
 }
 
-function handleVaultFolder({ folder = "", limit = 50, sort = "modified", recursive = false, tag } = {}) {
-  const targetAbs = folder ? path.resolve(VAULT_PATH, folder) : VAULT_PATH;
-  if (targetAbs !== VAULT_PATH && !targetAbs.startsWith(VAULT_PATH + path.sep)) {
+function handleVaultFolder({ folder = "", limit = 50, sort = "modified", recursive = false, tag, workspace } = {}) {
+  const vaultPath = resolveVaultPath(workspace);
+  if (typeof vaultPath === "object" && vaultPath.error) return vaultPath;
+
+  const targetAbs = folder ? path.resolve(vaultPath, folder) : vaultPath;
+  if (targetAbs !== vaultPath && !targetAbs.startsWith(vaultPath + path.sep)) {
     return { error: "Path traversal detected" };
   }
   if (!fs.existsSync(targetAbs)) return { error: `Folder not found: ${folder || "(root)"}` };
@@ -323,7 +386,7 @@ function handleVaultFolder({ folder = "", limit = 50, sort = "modified", recursi
           }
 
           items.push({
-            path: path.relative(VAULT_PATH, absPath),
+            path: path.relative(vaultPath, absPath),
             title: fm.title || null,
             date: fm.date || null,
             tags: Array.isArray(fm.tags) ? fm.tags : [],
@@ -353,10 +416,10 @@ function handleVaultFolder({ folder = "", limit = 50, sort = "modified", recursi
 
 // --- Image handlers --------------------------------------------------------
 
-function handleVaultImage({ path: relPath }) {
+function handleVaultImage({ path: relPath, workspace }) {
   if (!relPath) return { error: "path is required" };
 
-  const { abs, error } = safePath(relPath);
+  const { abs, error } = safePath(relPath, workspace);
   if (error) return { error };
 
   const ext = path.extname(abs).toLowerCase();
@@ -378,7 +441,7 @@ function handleVaultImage({ path: relPath }) {
   return { _image: true, data, mimeType };
 }
 
-function handleVaultWriteAsset({ folder, filename, data }) {
+function handleVaultWriteAsset({ folder, filename, data, workspace }) {
   if (typeof folder !== "string") return { error: "folder is required (use empty string for root)" };
   if (!filename) return { error: "filename is required" };
   if (!data) return { error: "data is required" };
@@ -394,7 +457,7 @@ function handleVaultWriteAsset({ folder, filename, data }) {
     ? path.join(folder, "assets", filename)
     : path.join("assets", filename);
 
-  const { abs, error } = safePath(relPath);
+  const { abs, error } = safePath(relPath, workspace);
   if (error) return { error };
 
   try {
@@ -412,12 +475,109 @@ function handleVaultWriteAsset({ folder, filename, data }) {
   }
 }
 
+// --- Search handlers -------------------------------------------------------
+
+/**
+ * Extract a JSON array from mixed output. vsearch/query may emit build noise
+ * (cmake, node-llama-cpp) to stdout before the actual JSON results.
+ */
+function extractJsonArray(text) {
+  const start = text.lastIndexOf("\n[");
+  if (start !== -1) {
+    try { return JSON.parse(text.slice(start + 1)); } catch { /* fall through */ }
+  }
+  // Try from the very beginning (clean output)
+  if (text.trimStart().startsWith("[")) {
+    return JSON.parse(text.trim());
+  }
+  return null;
+}
+
+function parseQmdResults(raw, collection) {
+  const results = extractJsonArray(raw);
+  if (!results) return null;
+  const prefix = `qmd://${collection}/`;
+  return results.map(r => ({
+    title: r.title || null,
+    score: r.score,
+    path: r.file.startsWith(prefix) ? r.file.slice(prefix.length) : r.file,
+    snippet: r.snippet || "",
+  }));
+}
+
+function runQmd(subcommand, query, collection, limit, timeoutMs) {
+  const args = [subcommand, query, "-c", collection, "-n", String(limit), "--json"];
+  try {
+    const stdout = execFileSync("qmd", args, {
+      timeout: timeoutMs,
+      maxBuffer: 10 * 1024 * 1024,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const parsed = parseQmdResults(stdout, collection);
+    if (parsed) return parsed;
+    return { error: "Search returned no parseable results" };
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      return { error: "qmd not found. Install: npm install -g @tobilu/qmd" };
+    }
+    if (err.killed) {
+      return { error: `Search timed out after ${timeoutMs / 1000}s` };
+    }
+    const stderr = err.stderr || "";
+    if (stderr.includes("collection") && stderr.includes("not found")) {
+      return { error: `Collection '${collection}' not found. Run: qmd collection add /path/to/vault --name ${collection}` };
+    }
+    // qmd may output JSON to stdout even when exit code is non-zero (build warnings)
+    if (err.stdout) {
+      const parsed = parseQmdResults(err.stdout, collection);
+      if (parsed) return parsed;
+    }
+    return { error: `Search failed: ${err.message}` };
+  }
+}
+
+function handleSearch(subcommand, args) {
+  const { query, workspace, limit: userLimit } = args;
+  if (!query) return { error: "query is required" };
+
+  const settings = loadSettings();
+  const workspaces = settings.workspaces || {};
+  const defaultWs = settings.default_workspace || "fathom";
+  const collection = workspace || defaultWs;
+
+  // Validate workspace exists in config
+  if (!workspaces[collection]) {
+    const available = Object.keys(workspaces).join(", ") || "(none configured)";
+    return { error: `Unknown workspace: "${collection}". Available: ${available}` };
+  }
+
+  const limit = userLimit || settings.mcp?.search_results || 10;
+  const timeoutMs = (settings.mcp?.query_timeout_seconds || 120) * 1000;
+
+  const results = runQmd(subcommand, query, collection, limit, timeoutMs);
+
+  if (results.error) return results;
+
+  return {
+    query,
+    workspace: collection,
+    count: results.length,
+    results,
+  };
+}
+
 // --- Server setup ----------------------------------------------------------
 
 const server = new Server(
   { name: "fathom-vault", version: "1.0.0" },
   { capabilities: { tools: {} } }
 );
+
+const WORKSPACE_PROP = {
+  type: "string",
+  description: "Workspace name (e.g. 'fathom', 'navier-stokes'). If omitted, uses default workspace.",
+};
 
 const tools = [
   {
@@ -438,6 +598,7 @@ const tools = [
           type: "string",
           description: "Full file content (optionally with YAML frontmatter)",
         },
+        workspace: WORKSPACE_PROP,
       },
       required: ["path", "content"],
     },
@@ -459,6 +620,7 @@ const tools = [
           type: "string",
           description: "Content block to append (markdown)",
         },
+        workspace: WORKSPACE_PROP,
       },
       required: ["path", "content"],
     },
@@ -475,6 +637,7 @@ const tools = [
           type: "string",
           description: "Relative path within vault, e.g. 'reflections/on-identity.md'",
         },
+        workspace: WORKSPACE_PROP,
       },
       required: ["path"],
     },
@@ -492,6 +655,7 @@ const tools = [
           type: "boolean",
           description: "Reserved for future use. Default: false.",
         },
+        workspace: WORKSPACE_PROP,
       },
       required: [],
     },
@@ -528,6 +692,7 @@ const tools = [
           type: "string",
           description: "Filter by tag (frontmatter tags array). Optional.",
         },
+        workspace: WORKSPACE_PROP,
       },
       required: [],
     },
@@ -545,6 +710,7 @@ const tools = [
           description:
             "Relative path to the image within the vault, e.g. 'assets/aurora.jpg' or 'research/assets/chart.png'",
         },
+        workspace: WORKSPACE_PROP,
       },
       required: ["path"],
     },
@@ -575,8 +741,75 @@ const tools = [
           description:
             "MIME type, e.g. 'image/png'. If omitted, inferred from filename extension.",
         },
+        workspace: WORKSPACE_PROP,
       },
       required: ["folder", "filename", "data"],
+    },
+  },
+  {
+    name: "fathom_vault_search",
+    description:
+      "Keyword search (BM25) across vault files. Fast, exact-match oriented. " +
+      "Good for finding specific terms, file names, or known phrases. " +
+      "For conceptual/semantic search, use fathom_vault_vsearch instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query (keywords)",
+        },
+        workspace: WORKSPACE_PROP,
+        limit: {
+          type: "integer",
+          description: "Max results to return (default: from settings, typically 10)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "fathom_vault_vsearch",
+    description:
+      "Semantic/vector search across vault files. Finds conceptually similar content " +
+      "even without exact keyword matches. Slower than keyword search but better for " +
+      "exploring ideas and finding related notes. Requires embeddings to be built (qmd embed).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query (natural language, conceptual)",
+        },
+        workspace: WORKSPACE_PROP,
+        limit: {
+          type: "integer",
+          description: "Max results to return (default: from settings, typically 10)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "fathom_vault_query",
+    description:
+      "Hybrid search combining BM25 keyword matching, vector similarity, and reranking. " +
+      "The most thorough search mode — best when you want comprehensive results. " +
+      "Slower than keyword-only search. Requires embeddings to be built (qmd embed).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Search query (keywords or natural language)",
+        },
+        workspace: WORKSPACE_PROP,
+        limit: {
+          type: "integer",
+          description: "Max results to return (default: from settings, typically 10)",
+        },
+      },
+      required: ["query"],
     },
   },
 ];
@@ -608,6 +841,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       break;
     case "fathom_vault_write_asset":
       result = handleVaultWriteAsset(args);
+      break;
+    case "fathom_vault_search":
+      result = handleSearch("search", args);
+      break;
+    case "fathom_vault_vsearch":
+      result = handleSearch("vsearch", args);
+      break;
+    case "fathom_vault_query":
+      result = handleSearch("query", args);
       break;
     default:
       result = { error: `Unknown tool: ${name}` };
