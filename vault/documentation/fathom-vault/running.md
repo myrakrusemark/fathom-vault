@@ -15,8 +15,8 @@ status: published
 ## Requirements
 
 - Python 3.11+
-- Node.js 18+
-- `qmd` on PATH (for search indexing; optional but recommended)
+- Node.js 22+ (required by qmd)
+- `qmd` on PATH (search indexing — BM25, vector, hybrid)
 
 ---
 
@@ -25,6 +25,9 @@ status: published
 ```bash
 git clone https://github.com/myrakrusemark/fathom-vault.git
 cd fathom-vault
+
+# Search engine (qmd) — required for vault search
+npm install -g @tobilu/qmd
 
 # Python dependencies
 pip install -r requirements.txt

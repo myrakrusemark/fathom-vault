@@ -4,7 +4,7 @@
 
 /* Markdown rendering in FileViewer */
 .prose-vault {
-  color: #E0E0F0;
+  color: oklch(var(--bc));
   line-height: 1.7;
 }
 
@@ -12,7 +12,7 @@
 .prose-vault h2,
 .prose-vault h3,
 .prose-vault h4 {
-  color: #F4A261;
+  color: oklch(var(--p));
   font-weight: 600;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
@@ -27,22 +27,22 @@
 }
 
 .prose-vault a {
-  color: #06B6D4;
+  color: oklch(var(--a));
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .prose-vault code {
-  background: #252545;
+  background: oklch(var(--b3));
   border-radius: 0.25rem;
   padding: 0.1em 0.3em;
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.875em;
-  color: #8B5CF6;
+  color: oklch(var(--s));
 }
 
 .prose-vault pre {
-  background: #252545;
+  background: oklch(var(--b3));
   border-radius: 0.5rem;
   padding: 1em;
   overflow-x: auto;
@@ -52,7 +52,7 @@
 .prose-vault pre code {
   background: none;
   padding: 0;
-  color: #C8C8E0;
+  color: oklch(var(--nc));
 }
 
 .prose-vault ul,
@@ -66,15 +66,15 @@
 }
 
 .prose-vault blockquote {
-  border-left: 3px solid #F4A261;
+  border-left: 3px solid oklch(var(--p));
   padding-left: 1em;
   margin-left: 0;
-  color: #C8C8E0;
+  color: oklch(var(--nc));
   font-style: italic;
 }
 
 .prose-vault hr {
-  border-color: #252545;
+  border-color: oklch(var(--b3));
   margin: 1.5em 0;
 }
 
@@ -109,14 +109,14 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #1A1A2E;
+  background: oklch(var(--b1));
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2A2A4A;
+  background: oklch(var(--n));
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3A3A5A;
+  background: oklch(var(--n) / 0.8);
 }

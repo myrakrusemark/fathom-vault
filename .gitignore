@@ -8,3 +8,4 @@ frontend/dist/
 mcp/node_modules/
 .env
 data/
+*.sync-conflict*

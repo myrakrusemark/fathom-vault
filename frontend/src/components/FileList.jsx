@@ -1,8 +1,8 @@
 // Returns a heat dot element based on activity score
 function heatDot(score) {
   if (score === undefined || score === null || score === 0) return null
-  if (score > 1.5) return <span className="mr-1 text-[8px]" style={{ color: "#F4A261" }} title={"Score: " + score.toFixed(2)}>&#9679;</span>
-  if (score >= 0.5) return <span className="mr-1 text-[8px]" style={{ color: "#8B5CF6" }} title={"Score: " + score.toFixed(2)}>&#9679;</span>
+  if (score > 1.5) return <span className="mr-1 text-[8px] text-primary" title={"Score: " + score.toFixed(2)}>&#9679;</span>
+  if (score >= 0.5) return <span className="mr-1 text-[8px] text-secondary" title={"Score: " + score.toFixed(2)}>&#9679;</span>
   return null
 }
 
@@ -96,8 +96,7 @@ export default function FileList({ folder, files, selectedFile, onSelect, sortBy
                 {f.tags.slice(0, 4).map(tag => (
                   <span
                     key={tag}
-                    className="badge badge-sm text-xs"
-                    style={{ backgroundColor: "#252545", color: "#8B5CF6", border: "none" }}
+                    className="badge badge-sm text-xs bg-base-300 text-secondary border-none"
                   >
                     {tag}
                   </span>

@@ -137,6 +137,41 @@ export default function SettingsPanel({ onClose }) {
 
         {settings && (
           <>
+            {/* Paths section */}
+            <section>
+              <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
+                Paths
+              </h3>
+              <label className="flex flex-col gap-1 mb-1">
+                <span className="text-sm text-base-content">Working directory</span>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm text-xs w-full bg-base-100"
+                  placeholder="/data/Dropbox/Work"
+                  value={settings?.terminal?.working_dir ?? ''}
+                  onChange={e => saveSettings({ ...settings, terminal: { ...settings.terminal, working_dir: e.target.value } })}
+                />
+              </label>
+              <p className="text-xs text-neutral-content opacity-50 mb-3">
+                Directory where Claude Code sessions launch.
+              </p>
+              <label className="flex flex-col gap-1 mb-1">
+                <span className="text-sm text-base-content">Vault directory</span>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm text-xs w-full bg-base-100"
+                  placeholder="/data/Dropbox/Work/vault"
+                  value={settings?.terminal?.vault_dir ?? ''}
+                  onChange={e => saveSettings({ ...settings, terminal: { ...settings.terminal, vault_dir: e.target.value } })}
+                />
+              </label>
+              <p className="text-xs text-neutral-content opacity-50">
+                Path to vault content. Requires app restart to take effect.
+              </p>
+            </section>
+
+            <div className="divider my-1"></div>
+
             {/* Indexing section */}
             <section>
               <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
@@ -223,7 +258,7 @@ export default function SettingsPanel({ onClose }) {
 
               {/* Last indexed */}
               {/* tick is used to force re-render every 30s for relative time */}
-              {/* eslint-disable-next-line no-unused-expressions */}
+              { }
               <p className="text-xs text-neutral-content opacity-50 mb-4" aria-live="polite">
                 {tick >= 0 && `Last indexed: ${relativeTime(bi.last_indexed)}`}
               </p>
@@ -411,27 +446,6 @@ export default function SettingsPanel({ onClose }) {
               </div>
             </section>
 
-            <div className="divider my-1"></div>
-
-            {/* Terminal section */}
-            <section>
-              <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
-                Terminal
-              </h3>
-              <label className="flex flex-col gap-1 mb-1">
-                <span className="text-sm text-base-content">Working directory</span>
-                <input
-                  type="text"
-                  className="input input-bordered input-sm text-xs w-full bg-base-100"
-                  placeholder="/data/Dropbox/Work"
-                  value={settings?.terminal?.working_dir ?? ''}
-                  onChange={e => saveSettings({ ...settings, terminal: { ...settings.terminal, working_dir: e.target.value } })}
-                />
-              </label>
-              <p className="text-xs text-neutral-content opacity-50">
-                Directory where Claude Code sessions launch.
-              </p>
-            </section>
           </>
         )}
       </div>

@@ -29,12 +29,12 @@ function FrontmatterBadges({ fm }) {
         </span>
       )}
       {fm.project && (
-        <span className="badge badge-sm" style={{ backgroundColor: '#252545', color: '#06B6D4', border: 'none' }}>
+        <span className="badge badge-sm bg-base-300 text-accent border-none">
           {fm.project}
         </span>
       )}
       {fm.tags && fm.tags.map(tag => (
-        <span key={tag} className="badge badge-sm" style={{ backgroundColor: '#252545', color: '#8B5CF6', border: 'none' }}>
+        <span key={tag} className="badge badge-sm bg-base-300 text-secondary border-none">
           {tag}
         </span>
       ))}
@@ -61,8 +61,7 @@ function WikiLink({ href, children, onWikilinkClick }) {
     const target = decodeURIComponent(href.slice(4))
     return (
       <span
-        className="cursor-pointer underline underline-offset-2 decoration-dotted"
-        style={{ color: '#06B6D4' }}
+        className="cursor-pointer underline underline-offset-2 decoration-dotted text-accent"
         onClick={() => onWikilinkClick(target)}
       >
         {children}

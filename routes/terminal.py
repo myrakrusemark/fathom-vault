@@ -1,19 +1,18 @@
-"""Terminal WebSocket — pty bridge for Claude Code sessions."""
+"""Terminal WebSocket — pty bridge for the persistent fathom-session."""
 
 import fcntl
 import json
 import os
 import pty
-import re
 import select
 import struct
 import subprocess
 import termios
 import threading
 
-from flask import request
 from flask_sock import Sock
 
+from services.persistent_session import _CLAUDE, _SESSION, _WORK_DIR, ensure_running
 from services.settings import load_settings
 
 sock = Sock()
@@ -21,13 +20,14 @@ sock = Sock()
 
 @sock.route("/ws/terminal")
 def terminal(ws):
-    # Resolve browser-specific tmux session name
-    raw = request.args.get("session", "")
-    session_id = re.sub(r"[^a-zA-Z0-9-]", "", raw)[:36]
-    tmux_session = f"fv-{session_id}" if session_id else "fv-default"
+    # Always connect to the single persistent fathom-session
+    tmux_session = _SESSION
+
+    # Ensure session exists (starts Claude if needed)
+    ensure_running()
 
     settings = load_settings()
-    working_dir = settings.get("terminal", {}).get("working_dir", "/data/Dropbox/Work")
+    working_dir = settings.get("terminal", {}).get("working_dir", _WORK_DIR)
 
     # Validate working directory exists
     if not os.path.isdir(working_dir):
@@ -41,7 +41,18 @@ def terminal(ws):
     try:
         master_fd, slave_fd = pty.openpty()
         subprocess.Popen(
-            ["tmux", "new-session", "-A", "-s", tmux_session, "claude"],
+            [
+                "tmux",
+                "new-session",
+                "-A",
+                "-s",
+                tmux_session,
+                _CLAUDE,
+                "--model",
+                "opus",
+                "--permission-mode",
+                "bypassPermissions",
+            ],
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,

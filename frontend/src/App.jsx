@@ -6,6 +6,7 @@ import ActiveFilesPanel from './components/ActiveFilesPanel.jsx'
 import SearchPanel from './components/SearchPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 import TerminalPanel from './components/TerminalPanel.jsx'
+import ActivationView from './components/ActivationView.jsx'
 
 export default function App() {
   const [folders, setFolders] = useState([])
@@ -20,8 +21,22 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [activeFilesOpen, setActiveFilesOpen] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [currentView, setCurrentView] = useState('vault') // 'vault' | 'activation'
+  const [theme, setTheme] = useState(() => localStorage.getItem('fathom-theme') || 'fathom-v')
   const [sortBy, setSortBy] = useState('modified')
   const [showHeatDots, setShowHeatDots] = useState(true)
+
+  // Apply theme to DOM and persist
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('fathom-theme', theme)
+  }, [theme])
+
+  // Auto-switch theme when view changes
+  useEffect(() => {
+    if (currentView === 'vault') setTheme('fathom-v')
+    else if (currentView === 'activation') setTheme('fathom-a')
+  }, [currentView])
 
   // Load activity settings on mount
   useEffect(() => {
@@ -126,7 +141,9 @@ export default function App() {
         flex items-center px-4 gap-3">
         <div className="dropdown">
           <div tabIndex={0} role="button" className="flex items-center gap-1 cursor-pointer select-none">
-            <span className="text-primary font-semibold text-sm tracking-wide">Fathom Vault</span>
+            <span className="text-primary font-semibold text-sm tracking-wide">
+              {currentView === 'activation' ? 'Activation' : 'Fathom Vault'}
+            </span>
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
               fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
               className="text-primary opacity-60">
@@ -135,40 +152,80 @@ export default function App() {
           </div>
           <ul tabIndex={0} className="dropdown-content menu bg-base-200 border border-base-300 rounded-box z-20 w-48 p-1 shadow-lg mt-1">
             <li>
-              <span className="text-primary font-semibold text-sm pointer-events-none">
-                Fathom Vault
-                <span className="ml-auto text-[10px] opacity-50 font-normal">current</span>
-              </span>
-            </li>
-            <li>
               <a href="https://hifathom.com/dashboard/" target="_blank" rel="noopener noreferrer"
-                className="text-sm flex items-center justify-between">
+                className="text-sm flex items-center gap-2">
+                <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#06B6D4' }} />
                 Memento
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
                   fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                  className="opacity-50">
+                  className="opacity-50 ml-auto">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                   <polyline points="15 3 21 3 21 9" />
                   <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
               </a>
             </li>
+            <li>
+              {currentView === 'vault' ? (
+                <span className="text-primary font-semibold text-sm pointer-events-none flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#8B5CF6' }} />
+                  Vault
+                  <span className="ml-auto text-[10px] opacity-50 font-normal">current</span>
+                </span>
+              ) : (
+                <button
+                  className="text-sm text-left w-full flex items-center gap-2"
+                  onClick={() => { setCurrentView('vault'); document.activeElement.blur() }}
+                >
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#8B5CF6' }} />
+                  Vault
+                </button>
+              )}
+            </li>
+            <li>
+              {currentView === 'activation' ? (
+                <span className="text-primary font-semibold text-sm pointer-events-none flex items-center gap-2">
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#F4A261' }} />
+                  Activation
+                  <span className="ml-auto text-[10px] opacity-50 font-normal">current</span>
+                </span>
+              ) : (
+                <button
+                  className="text-sm text-left w-full flex items-center gap-2"
+                  onClick={() => { setCurrentView('activation'); document.activeElement.blur() }}
+                >
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#F4A261' }} />
+                  Activation
+                </button>
+              )}
+            </li>
+            <li>
+              <span className="text-sm flex items-center gap-2 opacity-40 pointer-events-none">
+                <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#4ADE80' }} />
+                Crystallization
+                <span className="ml-auto text-[10px] font-normal">soon</span>
+              </span>
+            </li>
           </ul>
         </div>
-        {selectedFolder !== null && (
+        {currentView !== 'activation' && (
           <>
-            <span className="text-neutral-content opacity-40">/</span>
-            <span className="text-sm text-neutral-content opacity-70">
-              {selectedFolder || '(root)'}
-            </span>
-          </>
-        )}
-        {selectedFile && (
-          <>
-            <span className="text-neutral-content opacity-40">/</span>
-            <span className="text-sm text-accent opacity-80">
-              {selectedFile.split('/').pop()}
-            </span>
+            {selectedFolder !== null && (
+              <>
+                <span className="text-neutral-content opacity-40">/</span>
+                <span className="text-sm text-neutral-content opacity-70">
+                  {selectedFolder || '(root)'}
+                </span>
+              </>
+            )}
+            {selectedFile && (
+              <>
+                <span className="text-neutral-content opacity-40">/</span>
+                <span className="text-sm text-accent opacity-80">
+                  {selectedFile.split('/').pop()}
+                </span>
+              </>
+            )}
           </>
         )}
         <button
@@ -239,44 +296,50 @@ export default function App() {
         </button>
       </div>
 
-      {/* 3-panel layout below header */}
+      {/* Main content below header */}
       <div className="relative flex flex-1 pt-10 overflow-hidden">
-        {/* Left panel: folder tree */}
-        <div className="w-60 shrink-0 bg-base-200 border-r border-base-300 overflow-y-auto">
-          <FolderTree
-            folders={folders}
-            selectedFolder={selectedFolder}
-            onSelect={handleFolderSelect}
-          />
-        </div>
+        {currentView === 'activation' ? (
+          <ActivationView />
+        ) : (
+          <>
+            {/* Left panel: folder tree */}
+            <div className="w-60 shrink-0 bg-base-200 border-r border-base-300 overflow-y-auto">
+              <FolderTree
+                folders={folders}
+                selectedFolder={selectedFolder}
+                onSelect={handleFolderSelect}
+              />
+            </div>
 
-        {/* Center panel: file list */}
-        <div className="w-80 shrink-0 border-r border-base-300 overflow-y-auto bg-base-100">
-          <FileList
-            folder={selectedFolder}
-            files={files}
-            selectedFile={selectedFile}
-            onSelect={setSelectedFile}
-            sortBy={sortBy}
-            onSortChange={setSortBy}
-            showHeatDots={showHeatDots}
-          />
-        </div>
+            {/* Center panel: file list */}
+            <div className="w-80 shrink-0 border-r border-base-300 overflow-y-auto bg-base-100">
+              <FileList
+                folder={selectedFolder}
+                files={files}
+                selectedFile={selectedFile}
+                onSelect={setSelectedFile}
+                sortBy={sortBy}
+                onSortChange={setSortBy}
+                showHeatDots={showHeatDots}
+              />
+            </div>
 
-        {/* Right panel: file viewer — always full width */}
-        <div className="flex-1 overflow-y-auto bg-base-100">
-          <FileViewer
-            filePath={selectedFile}
-            data={fileData}
-            loading={fileLoading}
-            error={fileError}
-            onWikilinkClick={handleWikilinkClick}
-            onNavigate={navigateToFile}
-            onSaved={handleSaved}
-          />
-        </div>
+            {/* Right panel: file viewer */}
+            <div className="flex-1 overflow-y-auto bg-base-100">
+              <FileViewer
+                filePath={selectedFile}
+                data={fileData}
+                loading={fileLoading}
+                error={fileError}
+                onWikilinkClick={handleWikilinkClick}
+                onNavigate={navigateToFile}
+                onSaved={handleSaved}
+              />
+            </div>
+          </>
+        )}
 
-        {/* Overlay panels — absolute over content, don't push layout */}
+        {/* Overlay panels — rendered over any view */}
         {activeFilesOpen && (
           <div className="fixed right-0 top-10 bottom-0 w-[360px] border-l border-base-300 bg-base-200 overflow-y-auto z-20 shadow-xl">
             <ActiveFilesPanel
@@ -285,7 +348,6 @@ export default function App() {
             />
           </div>
         )}
-
         {searchOpen && (
           <div className="fixed right-0 top-10 bottom-0 w-[360px] border-l border-base-300 bg-base-200 overflow-y-auto z-20 shadow-xl">
             <SearchPanel
@@ -294,13 +356,11 @@ export default function App() {
             />
           </div>
         )}
-
         {settingsOpen && (
           <div className="fixed right-0 top-10 bottom-0 w-[360px] border-l border-base-300 bg-base-200 overflow-y-auto z-20 shadow-xl">
             <SettingsPanel onClose={() => setSettingsOpen(false)} />
           </div>
         )}
-
         {terminalOpen && (
           <div className="fixed right-0 top-10 bottom-0 w-[520px] border-l border-base-300 bg-base-200 overflow-hidden z-20 shadow-xl">
             <TerminalPanel

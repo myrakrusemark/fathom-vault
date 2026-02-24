@@ -8,6 +8,8 @@ export default function TerminalPanel({ onClose, filePath }) {
   const wsRef = useRef(null)
   const [lastSelection, setLastSelection] = useState('')
   const [copied, setCopied] = useState(false)
+  const [connectionKey, setConnectionKey] = useState(0)
+  const [restarting, setRestarting] = useState(false)
 
   // Track text selections — only store non-empty so clicking buttons doesn't wipe it
   useEffect(() => {
@@ -72,7 +74,7 @@ export default function TerminalPanel({ onClose, filePath }) {
       term.dispose()
       wsRef.current = null
     }
-  }, [])
+  }, [connectionKey])
 
   function sendToSession(text) {
     const ws = wsRef.current
@@ -100,11 +102,36 @@ export default function TerminalPanel({ onClose, filePath }) {
     })
   }
 
+  async function handleRestart() {
+    setRestarting(true)
+    try {
+      const res = await fetch('/api/activation/session/restart', { method: 'POST' })
+      if (!res.ok) throw new Error('restart failed')
+      // Wait for new session to initialize
+      await new Promise(r => setTimeout(r, 3000))
+      setConnectionKey(k => k + 1)
+    } catch (e) {
+      console.error('Restart failed:', e)
+    } finally {
+      setRestarting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-base-300 shrink-0 bg-base-200">
-        <span className="text-sm font-semibold text-primary">Claude Agent</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-primary">Claude Agent</span>
+          <button
+            onClick={handleRestart}
+            disabled={restarting}
+            className="btn btn-xs btn-ghost text-neutral-content opacity-60 hover:opacity-100"
+            title="Kill and restart session with --continue"
+          >
+            {restarting ? 'Restarting...' : 'Restart'}
+          </button>
+        </div>
         <button
           onClick={onClose}
           className="text-neutral-content opacity-60 hover:opacity-100 text-lg leading-none"

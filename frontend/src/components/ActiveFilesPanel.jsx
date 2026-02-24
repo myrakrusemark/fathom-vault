@@ -9,10 +9,10 @@ function relativeTime(ts) {
   return Math.floor(diff / 86400) + "d ago"
 }
 
-function heatColor(score) {
-  if (score > 1.5) return "#F4A261"
-  if (score >= 0.5) return "#8B5CF6"
-  return "#3A3A5A"
+function heatClass(score) {
+  if (score > 1.5) return "text-primary"
+  if (score >= 0.5) return "text-secondary"
+  return "text-neutral-content opacity-40"
 }
 
 function FileCard({ file, onNavigate }) {
@@ -20,18 +20,16 @@ function FileCard({ file, onNavigate }) {
     ? file.path.slice(0, file.path.lastIndexOf("/"))
     : ""
   const name = file.path.split("/").pop()
-  const color = heatColor(file.score)
+  const cls = heatClass(file.score)
 
   return (
     <div
-      className="rounded-lg p-3 cursor-pointer transition-colors hover:bg-base-300 border"
-      style={{ borderColor: color + "60" }}
+      className="rounded-lg p-3 cursor-pointer transition-colors hover:bg-base-300 border border-base-300"
       onClick={() => onNavigate(file.path)}
     >
       <div className="flex items-start gap-2">
         <span
-          className="mt-1 shrink-0 text-[8px]"
-          style={{ color }}
+          className={`mt-1 shrink-0 text-[8px] ${cls}`}
           title={"Score: " + file.score.toFixed(3)}
         >
           {"●"}

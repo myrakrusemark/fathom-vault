@@ -71,17 +71,17 @@ def update_settings():
         act_settings = settings.get("activity", {})
         if "decay_halflife_days" in act:
             v = act["decay_halflife_days"]
-            if not isinstance(v, (int, float)) or v <= 0:
+            if not isinstance(v, int | float) or v <= 0:
                 return jsonify({"error": "decay_halflife_days must be a positive number"}), 400
             act_settings["decay_halflife_days"] = float(v)
         if "recency_window_hours" in act:
             v = act["recency_window_hours"]
-            if not isinstance(v, (int, float)) or v <= 0:
+            if not isinstance(v, int | float) or v <= 0:
                 return jsonify({"error": "recency_window_hours must be a positive number"}), 400
             act_settings["recency_window_hours"] = float(v)
         if "max_access_boost" in act:
             v = act["max_access_boost"]
-            if not isinstance(v, (int, float)) or v <= 0:
+            if not isinstance(v, int | float) or v <= 0:
                 return jsonify({"error": "max_access_boost must be a positive number"}), 400
             act_settings["max_access_boost"] = float(v)
         if "activity_sort_default" in act:
@@ -106,6 +106,11 @@ def update_settings():
             if not isinstance(d, str):
                 return jsonify({"error": "working_dir must be a string"}), 400
             term_settings["working_dir"] = d
+        if "vault_dir" in term:
+            d = term["vault_dir"]
+            if not isinstance(d, str):
+                return jsonify({"error": "vault_dir must be a string"}), 400
+            term_settings["vault_dir"] = d
         settings["terminal"] = term_settings
 
     save_settings(settings)
