@@ -1,4 +1,11 @@
-"""Settings persistence — load/save to ~/.config/fathom-vault/settings.json."""
+"""Settings persistence — global + per-workspace split.
+
+Global settings (~/.config/fathom-vault/settings.json):
+    workspaces dict + default_workspace only.
+
+Per-workspace settings (<project>/.fathom/settings.json):
+    All operational config (indexing, MCP, activity, crystal, ping).
+"""
 
 import json
 import os
@@ -41,16 +48,16 @@ _DEFAULT_ROUTINE = {
     },
 }
 
-_DEFAULTS = {
+_WORKSPACE_DEFAULTS = {
     "background_index": {
         "enabled": True,
         "interval_minutes": 15,
-        "excluded_dirs": [],  # skipped by indexer AND filtered from search results
+        "excluded_dirs": [],
     },
     "mcp": {
         "query_timeout_seconds": 120,
         "search_results": 10,
-        "search_mode": "hybrid",  # "hybrid" | "keyword"
+        "search_mode": "hybrid",
     },
     "activity": {
         "decay_halflife_days": 7,
@@ -59,10 +66,6 @@ _DEFAULTS = {
         "activity_sort_default": False,
         "show_heat_indicator": True,
         "excluded_from_scoring": ["daily"],
-    },
-    "terminal": {
-        "working_dir": "/data/Dropbox/Work",
-        "vault_dir": "/data/Dropbox/Work/vault",
     },
     "crystal_regen": {
         "enabled": False,
@@ -78,7 +81,6 @@ def _migrate_ping(saved_ping: dict) -> dict:
     """Migrate old flat ping config to routines[] format."""
     if "routines" in saved_ping:
         return saved_ping
-    # Old format had enabled, interval_minutes, etc. at top level — wrap as routines[0]
     routine = {
         "id": "default",
         "name": "Default",
@@ -96,45 +98,276 @@ def new_routine_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
-def load_settings() -> dict:
-    """Load settings from disk, merging with defaults for any missing keys."""
+# ── Global settings ──────────────────────────────────────────────────────────
+
+
+def load_global_settings() -> dict:
+    """Load ~/.config/fathom-vault/settings.json — workspaces registry only."""
     try:
         with open(_SETTINGS_FILE) as f:
             saved = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         saved = {}
 
-    settings = {}
-    settings["background_index"] = {
-        **_DEFAULTS["background_index"],
-        **saved.get("background_index", {}),
-    }
-    settings["mcp"] = {
-        **_DEFAULTS["mcp"],
-        **saved.get("mcp", {}),
-    }
-    settings["activity"] = {
-        **_DEFAULTS["activity"],
-        **saved.get("activity", {}),
-    }
-    settings["terminal"] = {
-        **_DEFAULTS["terminal"],
-        **saved.get("terminal", {}),
-    }
-    settings["crystal_regen"] = {
-        **_DEFAULTS["crystal_regen"],
-        **saved.get("crystal_regen", {}),
-    }
+    workspaces = saved.get("workspaces", {})
+    default_ws = saved.get("default_workspace")
 
-    # Ping: migrate old format if needed
-    saved_ping = saved.get("ping", {})
-    settings["ping"] = _migrate_ping(saved_ping) if saved_ping else _DEFAULTS["ping"]
+    if not workspaces or not isinstance(workspaces, dict):
+        workspaces = {"fathom": "/data/Dropbox/Work"}
+        default_ws = "fathom"
+    elif not default_ws or default_ws not in workspaces:
+        default_ws = next(iter(workspaces))
+
+    return {"workspaces": workspaces, "default_workspace": default_ws}
+
+
+def save_global_settings(settings: dict) -> None:
+    """Save global settings — workspaces + default only."""
+    os.makedirs(_SETTINGS_DIR, exist_ok=True)
+    data = {
+        "workspaces": settings.get("workspaces", {}),
+        "default_workspace": settings.get("default_workspace"),
+    }
+    with open(_SETTINGS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# ── Per-workspace settings ───────────────────────────────────────────────────
+
+
+def _resolve_workspace_path(workspace: str = None) -> str:
+    """Resolve project root path for a workspace name."""
+    gs = load_global_settings()
+    ws_name = workspace or gs["default_workspace"]
+    ws_path = gs["workspaces"].get(ws_name)
+    if not ws_path:
+        msg = f"Unknown workspace: {ws_name}"
+        raise ValueError(msg)
+    return ws_path
+
+
+def load_workspace_settings(workspace: str = None) -> dict:
+    """Load <project>/.fathom/settings.json, merged with defaults."""
+    try:
+        ws_path = _resolve_workspace_path(workspace)
+        settings_path = os.path.join(ws_path, ".fathom", "settings.json")
+    except ValueError:
+        return {k: (dict(v) if isinstance(v, dict) else v) for k, v in _WORKSPACE_DEFAULTS.items()}
+
+    try:
+        with open(settings_path) as f:
+            saved = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        saved = {}
+
+    settings = {}
+    for key, default_val in _WORKSPACE_DEFAULTS.items():
+        if key == "ping":
+            saved_ping = saved.get("ping", {})
+            settings["ping"] = (
+                _migrate_ping(saved_ping) if saved_ping else {"routines": [dict(_DEFAULT_ROUTINE)]}
+            )
+        elif isinstance(default_val, dict):
+            settings[key] = {**default_val, **saved.get(key, {})}
+        else:
+            settings[key] = saved.get(key, default_val)
 
     return settings
 
 
-def save_settings(settings: dict) -> None:
-    """Persist settings to disk."""
+def save_workspace_settings(workspace: str, settings: dict) -> None:
+    """Save to <project>/.fathom/settings.json."""
+    ws_path = _resolve_workspace_path(workspace)
+    settings_path = os.path.join(ws_path, ".fathom", "settings.json")
+    os.makedirs(os.path.dirname(settings_path), exist_ok=True)
+
+    # Only persist workspace-specific keys
+    data = {}
+    for key in _WORKSPACE_DEFAULTS:
+        if key in settings:
+            data[key] = settings[key]
+    with open(settings_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+# ── One-time migration ──────────────────────────────────────────────────────
+
+_MIGRATED = False
+
+
+def _migrate_to_split_settings() -> None:
+    """One-time migration: split monolithic settings into global + per-workspace.
+
+    1. Strip /vault suffix from workspace paths (store project roots, not vault dirs).
+    2. Extract operational config into per-workspace .fathom/settings.json files.
+    3. Clean global settings to workspaces + default_workspace only.
+    """
+    global _MIGRATED
+    if _MIGRATED:
+        return
+    _MIGRATED = True
+
+    try:
+        with open(_SETTINGS_FILE) as f:
+            saved = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return
+
+    workspaces = saved.get("workspaces", {})
+    if not workspaces:
+        return
+
+    # Detect if migration is needed
+    needs_path_migration = any(p.endswith("/vault") for p in workspaces.values())
+    operational_keys = ("background_index", "mcp", "activity", "crystal_regen", "ping", "terminal")
+    has_operational_config = any(k in saved for k in operational_keys)
+
+    if not needs_path_migration and not has_operational_config:
+        return  # Already migrated
+
+    # Step 1: Strip /vault suffix from workspace paths
+    new_workspaces = {}
+    for name, ws_path in workspaces.items():
+        if ws_path.endswith("/vault"):
+            project_root = ws_path[:-6]
+            if os.path.isdir(project_root):
+                new_workspaces[name] = project_root
+            else:
+                new_workspaces[name] = ws_path  # keep as-is
+        else:
+            new_workspaces[name] = ws_path
+
+    # Step 2: Extract operational config
+    ws_config = {}
+    ws_keys = ("background_index", "mcp", "activity", "crystal_regen", "ping")
+    for key in ws_keys:
+        if key in saved:
+            ws_config[key] = saved[key]
+
+    # Step 3: Create per-workspace .fathom/settings.json for each workspace
+    for _name, project_root in new_workspaces.items():
+        ws_settings_dir = os.path.join(project_root, ".fathom")
+        ws_settings_path = os.path.join(ws_settings_dir, "settings.json")
+        if not os.path.exists(ws_settings_path) and ws_config:
+            os.makedirs(ws_settings_dir, exist_ok=True)
+            with open(ws_settings_path, "w") as f:
+                json.dump(ws_config, f, indent=2)
+
+    # Step 4: Write clean global settings
+    global_data = {
+        "workspaces": new_workspaces,
+        "default_workspace": saved.get("default_workspace", next(iter(new_workspaces))),
+    }
     os.makedirs(_SETTINGS_DIR, exist_ok=True)
     with open(_SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+        json.dump(global_data, f, indent=2)
+
+
+# ── Backward-compatible wrappers ─────────────────────────────────────────────
+
+
+def load_settings(workspace: str = None) -> dict:
+    """Load merged settings: global (workspaces) + per-workspace (operational).
+
+    Triggers one-time migration on first call.
+    """
+    _migrate_to_split_settings()
+
+    gs = load_global_settings()
+    ws_name = workspace or gs["default_workspace"]
+    ws_s = load_workspace_settings(ws_name)
+
+    # Merge: per-workspace config + global fields
+    merged = {**ws_s}
+    merged["workspaces"] = gs["workspaces"]
+    merged["default_workspace"] = gs["default_workspace"]
+    return merged
+
+
+def save_settings(settings: dict, workspace: str = None) -> None:
+    """Save settings, routing global and per-workspace fields to correct files."""
+    gs = load_global_settings()
+    ws_name = workspace or gs["default_workspace"]
+
+    # Route global fields
+    changed_global = False
+    if "workspaces" in settings:
+        gs["workspaces"] = settings["workspaces"]
+        changed_global = True
+    if "default_workspace" in settings:
+        gs["default_workspace"] = settings["default_workspace"]
+        changed_global = True
+    if changed_global:
+        save_global_settings(gs)
+
+    # Route per-workspace fields
+    ws_keys = set(_WORKSPACE_DEFAULTS.keys())
+    ws_data = {k: v for k, v in settings.items() if k in ws_keys}
+    if ws_data:
+        current = load_workspace_settings(ws_name)
+        current.update(ws_data)
+        save_workspace_settings(ws_name, current)
+
+
+# ── Workspace CRUD ───────────────────────────────────────────────────────────
+
+
+def add_workspace(name: str, project_path: str) -> tuple[bool, str]:
+    """Add a workspace. Path is the project root (must contain vault/ subdir).
+
+    Creates .fathom/ directory with default settings if missing.
+    Returns (ok, error_message).
+    """
+    if not name or not isinstance(name, str):
+        return False, "Workspace name is required"
+    if not project_path or not isinstance(project_path, str):
+        return False, "Project path is required"
+    if not os.path.isdir(project_path):
+        return False, f"Path does not exist: {project_path}"
+
+    vault_dir = os.path.join(project_path, "vault")
+    if not os.path.isdir(vault_dir):
+        return False, f"No vault/ subdirectory found at: {vault_dir}"
+
+    gs = load_global_settings()
+    if name in gs["workspaces"]:
+        return False, f'Workspace "{name}" already exists'
+
+    gs["workspaces"][name] = project_path
+    save_global_settings(gs)
+
+    # Create .fathom/settings.json with defaults if missing
+    ws_settings_dir = os.path.join(project_path, ".fathom")
+    ws_settings_path = os.path.join(ws_settings_dir, "settings.json")
+    if not os.path.exists(ws_settings_path):
+        os.makedirs(ws_settings_dir, exist_ok=True)
+        with open(ws_settings_path, "w") as f:
+            json.dump(dict(_WORKSPACE_DEFAULTS), f, indent=2)
+
+    return True, ""
+
+
+def remove_workspace(name: str) -> tuple[bool, str]:
+    """Remove a workspace. Cannot remove the default. Returns (ok, error_message)."""
+    gs = load_global_settings()
+
+    if name not in gs["workspaces"]:
+        return False, f'Workspace "{name}" not found'
+    if name == gs["default_workspace"]:
+        return False, "Cannot remove the default workspace"
+
+    del gs["workspaces"][name]
+    save_global_settings(gs)
+    return True, ""
+
+
+def set_default_workspace(name: str) -> tuple[bool, str]:
+    """Set a workspace as default. Returns (ok, error_message)."""
+    gs = load_global_settings()
+
+    if name not in gs["workspaces"]:
+        return False, f'Workspace "{name}" not found'
+
+    gs["default_workspace"] = name
+    save_global_settings(gs)
+    return True, ""

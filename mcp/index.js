@@ -38,19 +38,31 @@ function resolveVaultPath(workspace) {
   const settings = loadSettings();
   const workspaces = settings.workspaces || {};
 
+  let projectRoot;
   if (!workspace) {
     const defaultWs = settings.default_workspace;
     if (defaultWs && workspaces[defaultWs]) {
-      return workspaces[defaultWs];
+      projectRoot = workspaces[defaultWs];
+    } else {
+      return DEFAULT_VAULT_PATH;
     }
-    return DEFAULT_VAULT_PATH;
+  } else {
+    projectRoot = workspaces[workspace];
+    if (!projectRoot) {
+      return { error: `Unknown workspace: "${workspace}". Available: ${Object.keys(workspaces).join(", ") || "(none configured)"}` };
+    }
   }
 
-  const wsPath = workspaces[workspace];
-  if (!wsPath) {
-    return { error: `Unknown workspace: "${workspace}". Available: ${Object.keys(workspaces).join(", ") || "(none configured)"}` };
-  }
-  return wsPath;
+  // Project root + /vault = vault path. Handle both pre- and post-migration formats.
+  const withVault = path.join(projectRoot, "vault");
+  try {
+    if (fs.existsSync(withVault) && fs.statSync(withVault).isDirectory()) {
+      return withVault;
+    }
+  } catch { /* fall through */ }
+
+  // Fallback: stored path might already be a vault path (pre-migration compat)
+  return projectRoot;
 }
 
 // Access tracking — same SQLite DB as services/access.py
@@ -475,6 +487,206 @@ function handleVaultWriteAsset({ folder, filename, data, workspace }) {
   }
 }
 
+// --- Communication handlers ------------------------------------------------
+
+function handleWorkspaces() {
+  const settings = loadSettings();
+  const workspaces = settings.workspaces || {};
+  const defaultWs = settings.default_workspace;
+
+  const result = [];
+  for (const [name, projectPath] of Object.entries(workspaces)) {
+    const sessionName = `${name}_fathom-session`;
+    let running = false;
+    try {
+      execFileSync("tmux", ["has-session", "-t", sessionName], {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      running = true;
+    } catch {
+      running = false;
+    }
+
+    let paneId = null;
+    const paneFile = path.join(os.homedir(), ".config", "fathom", `${name}-pane-id`);
+    try {
+      paneId = fs.readFileSync(paneFile, "utf-8").trim() || null;
+    } catch { /* no pane-id file */ }
+
+    result.push({
+      name,
+      project_path: projectPath,
+      vault_path: path.join(projectPath, "vault"),
+      session: sessionName,
+      running,
+      pane_id: paneId,
+      is_default: name === defaultWs,
+    });
+  }
+
+  return { workspaces: result, count: result.length };
+}
+
+/**
+ * Inject a formatted message into a tmux target via load-buffer + paste-buffer.
+ * Returns true on success, throws on failure.
+ */
+function injectMessage(target, formattedMessage, workspace) {
+  const tmpFile = `/tmp/fathom-send-${workspace}-${Date.now()}.txt`;
+  try {
+    fs.writeFileSync(tmpFile, formattedMessage);
+    execFileSync("tmux", ["load-buffer", tmpFile], { stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync("tmux", ["paste-buffer", "-t", target], { stdio: ["pipe", "pipe", "pipe"] });
+    try { fs.unlinkSync(tmpFile); } catch { /* cleanup best-effort */ }
+    // Brief pause then Enter to submit
+    execFileSync("sleep", ["0.5"], { stdio: ["pipe", "pipe", "pipe"] });
+    execFileSync("tmux", ["send-keys", "-t", target, "", "Enter"], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return true;
+  } catch (e) {
+    try { fs.unlinkSync(tmpFile); } catch { /* cleanup */ }
+    throw e;
+  }
+}
+
+/**
+ * Background delivery — starts a session, polls for readiness, then injects.
+ * Fire-and-forget: errors are logged but not propagated.
+ */
+async function deliverMessage(workspace, formattedMessage, sessionName, projectPath, paneFile) {
+  try {
+    // Start a new session with Claude in the workspace's project dir
+    const env = { ...process.env };
+    delete env.CLAUDECODE; // prevent nested session detection
+    execFileSync(
+      "tmux",
+      [
+        "new-session", "-d", "-s", sessionName,
+        "/home/myra/.local/bin/claude",
+        "--model", "opus",
+        "--permission-mode", "bypassPermissions",
+      ],
+      { cwd: projectPath, env, stdio: ["pipe", "pipe", "pipe"] },
+    );
+
+    // Poll for Claude readiness — look for ❯ prompt
+    const maxWaitMs = 60000;
+    const pollIntervalMs = 2000;
+    const startTime = Date.now();
+    let ready = false;
+
+    while (Date.now() - startTime < maxWaitMs) {
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+      try {
+        const output = execFileSync(
+          "tmux",
+          ["capture-pane", "-t", sessionName, "-p", "-S", "-10"],
+          { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+        );
+        if (output.includes("\u276F")) {
+          ready = true;
+          break;
+        }
+      } catch { /* session might not be ready yet */ }
+    }
+
+    if (!ready) {
+      console.error(`[fathom_send] Session ${sessionName} started but Claude not ready within 60s`);
+      return;
+    }
+
+    // Save pane ID for future targeting
+    try {
+      const paneOutput = execFileSync(
+        "tmux",
+        ["list-panes", "-t", sessionName, "-F", "#{pane_id}"],
+        { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+      );
+      const newPaneId = paneOutput.trim().split("\n")[0];
+      if (newPaneId) {
+        const paneDir = path.dirname(paneFile);
+        fs.mkdirSync(paneDir, { recursive: true });
+        fs.writeFileSync(paneFile, newPaneId);
+      }
+    } catch { /* pane-id save is best-effort */ }
+
+    // Resolve target pane
+    let target = sessionName;
+    try {
+      const savedPaneId = fs.readFileSync(paneFile, "utf-8").trim();
+      if (savedPaneId) target = savedPaneId;
+    } catch { /* fall back to session name */ }
+
+    // Inject
+    injectMessage(target, formattedMessage, workspace);
+  } catch (e) {
+    console.error(`[fathom_send] Background delivery to ${workspace} failed: ${e.message}`);
+  }
+}
+
+function handleSend({ workspace, message, from }) {
+  if (!workspace) return { error: "workspace is required" };
+  if (!message) return { error: "message is required" };
+
+  const settings = loadSettings();
+  const workspaces = settings.workspaces || {};
+  const projectPath = workspaces[workspace];
+
+  if (!projectPath) {
+    const available = Object.keys(workspaces).join(", ") || "(none)";
+    return { error: `Unknown workspace: "${workspace}". Available: ${available}` };
+  }
+
+  const sender = from || "unknown";
+  const formattedMessage = `Message from workspace (${sender}): ${message}`;
+  const sessionName = `${workspace}_fathom-session`;
+  const paneFile = path.join(os.homedir(), ".config", "fathom", `${workspace}-pane-id`);
+
+  // Check if session is running
+  let running = false;
+  try {
+    execFileSync("tmux", ["has-session", "-t", sessionName], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    running = true;
+  } catch { /* not running */ }
+
+  if (running) {
+    // Session is live — inject immediately
+    let target = sessionName;
+    try {
+      const savedPaneId = fs.readFileSync(paneFile, "utf-8").trim();
+      if (savedPaneId) target = savedPaneId;
+    } catch { /* fall back to session name */ }
+
+    try {
+      injectMessage(target, formattedMessage, workspace);
+      return {
+        ok: true,
+        delivered: true,
+        workspace,
+        session: sessionName,
+        message_length: message.length,
+      };
+    } catch (e) {
+      return { error: `Failed to inject message: ${e.message}` };
+    }
+  }
+
+  // Session not running — fire-and-forget background delivery
+  deliverMessage(workspace, formattedMessage, sessionName, projectPath, paneFile);
+
+  return {
+    ok: true,
+    delivered: false,
+    queued: true,
+    workspace,
+    session: sessionName,
+    message_length: message.length,
+  };
+}
+
 // --- Search handlers -------------------------------------------------------
 
 /**
@@ -629,7 +841,7 @@ const tools = [
     name: "fathom_vault_read",
     description:
       "Read a vault file by path. Returns content, parsed frontmatter, body, size, and modification time. " +
-      "Use fathom_vault_list (via fathom MCP) to browse available files first.",
+      "Use fathom_vault_list and fathom_vault_folder to browse available files if you don't know the path.",
     inputSchema: {
       type: "object",
       properties: {
@@ -747,11 +959,53 @@ const tools = [
     },
   },
   {
+    name: "fathom_workspaces",
+    description:
+      "List all configured workspaces — use this to discover valid workspace names before " +
+      "calling fathom_send. Returns each workspace's name, project path, vault path, tmux " +
+      "session name, running status (whether its Claude instance is currently active), saved " +
+      "pane ID, and whether it's the default workspace.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "fathom_send",
+    description:
+      "Send a message to another workspace's Claude instance — for cross-workspace coordination, " +
+      "sharing findings, or requesting action. Use fathom_workspaces first to discover valid " +
+      "targets. If the target session is running, the message is injected immediately " +
+      "(delivered: true). If not running, the session is started in the background and the " +
+      "message is delivered once Claude is ready — the tool returns immediately either way " +
+      "(queued: true for offline sessions). The target agent sees: " +
+      "'Message from workspace ({from}): {message}'",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace: {
+          type: "string",
+          description: "Target workspace name — run fathom_workspaces to see available options",
+        },
+        message: {
+          type: "string",
+          description: "Message to send to the target workspace's Claude instance",
+        },
+        from: {
+          type: "string",
+          description: "Your workspace name so the recipient knows who sent it (defaults to 'unknown')",
+        },
+      },
+      required: ["workspace", "message"],
+    },
+  },
+  {
     name: "fathom_vault_search",
     description:
-      "Keyword search (BM25) across vault files. Fast, exact-match oriented. " +
-      "Good for finding specific terms, file names, or known phrases. " +
-      "For conceptual/semantic search, use fathom_vault_vsearch instead.",
+      "Keyword search (BM25) across vault files — start here for most searches. Fast, " +
+      "exact-match oriented. Best for specific terms, file names, or known phrases. " +
+      "If results miss conceptually related content, follow up with fathom_vault_vsearch.",
     inputSchema: {
       type: "object",
       properties: {
@@ -771,9 +1025,10 @@ const tools = [
   {
     name: "fathom_vault_vsearch",
     description:
-      "Semantic/vector search across vault files. Finds conceptually similar content " +
-      "even without exact keyword matches. Slower than keyword search but better for " +
-      "exploring ideas and finding related notes. Requires embeddings to be built (qmd embed).",
+      "Semantic/vector search across vault files — use when keyword search misses or when " +
+      "exploring ideas by meaning rather than exact terms. Finds conceptually similar content " +
+      "even without keyword overlap. Slower than fathom_vault_search. " +
+      "For the most thorough results, use fathom_vault_query instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -793,9 +1048,10 @@ const tools = [
   {
     name: "fathom_vault_query",
     description:
-      "Hybrid search combining BM25 keyword matching, vector similarity, and reranking. " +
-      "The most thorough search mode — best when you want comprehensive results. " +
-      "Slower than keyword-only search. Requires embeddings to be built (qmd embed).",
+      "Hybrid search combining BM25 keyword matching, vector similarity, and reranking — " +
+      "the most thorough search mode. Use when completeness matters more than speed " +
+      "(e.g. 'find everything related to X'). Slowest of the three search tools. " +
+      "For quick lookups, start with fathom_vault_search instead.",
     inputSchema: {
       type: "object",
       properties: {
@@ -841,6 +1097,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       break;
     case "fathom_vault_write_asset":
       result = handleVaultWriteAsset(args);
+      break;
+    case "fathom_workspaces":
+      result = handleWorkspaces();
+      break;
+    case "fathom_send":
+      result = handleSend(args);
       break;
     case "fathom_vault_search":
       result = handleSearch("search", args);

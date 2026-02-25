@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useWorkspace, wsUrl } from '../WorkspaceContext.jsx'
 
 const INTERVAL_OPTIONS = [
   { label: '5 minutes', value: 5 },
@@ -18,20 +19,24 @@ function relativeTime(isoString) {
 }
 
 export default function SettingsPanel({ onClose }) {
+  const { activeWorkspace, reloadWorkspaces } = useWorkspace()
   const [settings, setSettings] = useState(null)
   const [indexingNow, setIndexingNow] = useState(false)
   const [tick, setTick] = useState(0)
   const [dirInput, setDirInput] = useState('')
   const [dirError, setDirError] = useState('')
+  const [newWsName, setNewWsName] = useState('')
+  const [newWsPath, setNewWsPath] = useState('')
+  const [wsError, setWsError] = useState('')
   const debounceRef = useRef(null)
 
-  // Load settings on mount
+  // Load settings on mount and when workspace changes
   useEffect(() => {
-    fetch('/api/settings')
+    fetch(wsUrl('/api/settings', activeWorkspace))
       .then(r => r.json())
       .then(data => setSettings(data))
       .catch(console.error)
-  }, [])
+  }, [activeWorkspace])
 
   // Refresh relative time every 30s
   useEffect(() => {
@@ -43,14 +48,15 @@ export default function SettingsPanel({ onClose }) {
     setSettings(updated)
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      fetch('/api/settings', {
+      fetch(wsUrl('/api/settings', activeWorkspace), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           background_index: updated.background_index,
           mcp: updated.mcp,
           activity: updated.activity,
-          terminal: updated.terminal,
+          workspaces: updated.workspaces,
+          default_workspace: updated.default_workspace,
         }),
       })
         .then(r => r.json())
@@ -77,7 +83,7 @@ export default function SettingsPanel({ onClose }) {
 
   function handleIndexNow() {
     setIndexingNow(true)
-    fetch('/api/settings/index-now', { method: 'POST' })
+    fetch(wsUrl('/api/settings/index-now', activeWorkspace), { method: 'POST' })
       .catch(console.error)
       .finally(() => {
         setTimeout(() => setIndexingNow(false), 5_000)
@@ -111,6 +117,45 @@ export default function SettingsPanel({ onClose }) {
     })
   }
 
+  function handleAddWorkspace() {
+    const name = newWsName.trim()
+    const path = newWsPath.trim()
+    if (!name) { setWsError('Name is required'); return }
+    if (!path || !path.startsWith('/')) { setWsError('Path must be absolute'); return }
+    if (settings?.workspaces?.[name]) { setWsError(`"${name}" already exists`); return }
+
+    setWsError('')
+    fetch('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, path }),
+    })
+      .then(r => {
+        if (!r.ok) return r.json().then(d => { throw new Error(d.error || `HTTP ${r.status}`) })
+        return r.json()
+      })
+      .then(data => {
+        if (data.error) { setWsError(data.error); return }
+        setNewWsName('')
+        setNewWsPath('')
+        fetch(wsUrl('/api/settings', activeWorkspace)).then(r => r.json()).then(s => { setSettings(s); reloadWorkspaces() })
+      })
+      .catch(e => setWsError(e.message || 'Failed to add workspace'))
+  }
+
+  function handleRemoveWorkspace(name) {
+    fetch(`/api/workspaces/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      .then(r => {
+        if (!r.ok) return r.json().then(d => { throw new Error(d.error || `HTTP ${r.status}`) })
+        return r.json()
+      })
+      .then(data => {
+        if (data.error) { setWsError(data.error); return }
+        fetch(wsUrl('/api/settings', activeWorkspace)).then(r => r.json()).then(s => { setSettings(s); reloadWorkspaces() })
+      })
+      .catch(e => setWsError(e.message || 'Failed to remove workspace'))
+  }
+
   const bi = settings?.background_index
   const mcp = settings?.mcp
   const act = settings?.activity
@@ -137,36 +182,75 @@ export default function SettingsPanel({ onClose }) {
 
         {settings && (
           <>
-            {/* Paths section */}
+            {/* Workspaces section */}
             <section>
               <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
-                Paths
+                Workspaces
               </h3>
-              <label className="flex flex-col gap-1 mb-1">
-                <span className="text-sm text-base-content">Working directory</span>
+
+              <p className="text-xs text-neutral-content opacity-40 mb-1.5">Select default</p>
+              {/* Workspace table */}
+              <div className="space-y-1 mb-3">
+                {Object.entries(settings?.workspaces || {}).map(([name, path]) => (
+                  <div key={name} className="flex items-center gap-2 px-2 py-1.5 rounded bg-base-100 border border-base-300">
+                    <input
+                      type="radio"
+                      name="default-workspace"
+                      className="radio radio-primary radio-xs"
+                      checked={settings?.default_workspace === name}
+                      onChange={() => {
+                        const updated = { ...settings, default_workspace: name }
+                        saveSettings(updated)
+                        reloadWorkspaces()
+                      }}
+                      title="Set as default"
+                    />
+                    <span className="text-sm text-base-content font-medium min-w-[80px]">{name}</span>
+                    <span className="text-xs text-neutral-content opacity-50 flex-1 truncate" title={path}>
+                      {path}
+                    </span>
+                    <button
+                      className="text-xs text-neutral-content opacity-40 hover:opacity-100 hover:text-error leading-none disabled:opacity-20"
+                      onClick={() => handleRemoveWorkspace(name)}
+                      disabled={settings?.default_workspace === name}
+                      title={settings?.default_workspace === name ? 'Cannot remove default workspace' : `Remove ${name}`}
+                      aria-label={`Remove workspace ${name}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Add workspace */}
+              <div className="flex gap-1.5 mb-1">
                 <input
                   type="text"
-                  className="input input-bordered input-sm text-xs w-full bg-base-100"
-                  placeholder="/data/Dropbox/Work"
-                  value={settings?.terminal?.working_dir ?? ''}
-                  onChange={e => saveSettings({ ...settings, terminal: { ...settings.terminal, working_dir: e.target.value } })}
+                  className="input input-bordered input-sm text-xs bg-base-100 w-24"
+                  placeholder="name"
+                  value={newWsName}
+                  onChange={e => { setNewWsName(e.target.value); setWsError('') }}
                 />
-              </label>
-              <p className="text-xs text-neutral-content opacity-50 mb-3">
-                Directory where Claude Code sessions launch.
-              </p>
-              <label className="flex flex-col gap-1 mb-1">
-                <span className="text-sm text-base-content">Vault directory</span>
                 <input
                   type="text"
-                  className="input input-bordered input-sm text-xs w-full bg-base-100"
-                  placeholder="/data/Dropbox/Work/vault"
-                  value={settings?.terminal?.vault_dir ?? ''}
-                  onChange={e => saveSettings({ ...settings, terminal: { ...settings.terminal, vault_dir: e.target.value } })}
+                  className="input input-bordered input-sm text-xs bg-base-100 flex-1"
+                  placeholder="/path/to/project"
+                  value={newWsPath}
+                  onChange={e => { setNewWsPath(e.target.value); setWsError('') }}
+                  onKeyDown={e => e.key === 'Enter' && handleAddWorkspace()}
                 />
-              </label>
-              <p className="text-xs text-neutral-content opacity-50">
-                Path to vault content. Requires app restart to take effect.
+                <button
+                  className="btn btn-sm btn-outline"
+                  onClick={handleAddWorkspace}
+                >
+                  Add
+                </button>
+              </div>
+              {wsError && (
+                <p className="text-xs text-error mb-1">{wsError}</p>
+              )}
+              <p className="text-xs text-neutral-content opacity-50 mb-1">
+                Project root path (must contain vault/ subfolder). Radio selects default.
               </p>
             </section>
 
@@ -257,7 +341,6 @@ export default function SettingsPanel({ onClose }) {
               )}
 
               {/* Last indexed */}
-              {/* tick is used to force re-render every 30s for relative time */}
               { }
               <p className="text-xs text-neutral-content opacity-50 mb-4" aria-live="polite">
                 {tick >= 0 && `Last indexed: ${relativeTime(bi.last_indexed)}`}

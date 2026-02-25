@@ -1,6 +1,7 @@
 // ActivationView — MVAC "A" layer, full-page view
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useWorkspace, wsUrl } from '../WorkspaceContext.jsx'
 
 // ── Shared utilities ─────────────────────────────────────────────────────────
 function relativeTime(iso) {
@@ -126,7 +127,6 @@ function SettingsColumn({ status, onSpawn, job, schedule, onScheduleChange }) {
   const [additionalContext, setAdditionalContext] = useState(
     () => localStorage.getItem('fv-additional-context') || ''
   )
-  const [stripSystemPrompt, setStripSystemPrompt] = useState(true)
   const [elapsed, setElapsed] = useState(0)
 
   useEffect(() => {
@@ -246,32 +246,13 @@ function SettingsColumn({ status, onSpawn, job, schedule, onScheduleChange }) {
             <Helper>Merged into the base prompt every run. Saved locally. Clear to disable.</Helper>
           </Accordion>
 
-          {/* ── Environment ── */}
-          <SubSection label="Environment" />
-
-          <label className="flex items-start justify-between gap-3 cursor-pointer mb-1">
-            <div>
-              <span className="text-sm text-base-content">Clean session</span>
-              <p className="text-[10px] text-neutral-content opacity-40 mt-0.5">
-                No injected context — stripped CLAUDE.md
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary toggle-sm mt-0.5 shrink-0"
-              checked={stripSystemPrompt}
-              onChange={e => setStripSystemPrompt(e.target.checked)}
-            />
-          </label>
-          <Helper>Synthesizes from raw vault materials, not the agent's existing self-model. Recommended.</Helper>
-
           {/* ── Run ── */}
           <SubSection label="Run" />
 
           <button
             className="btn btn-sm btn-outline w-full"
             disabled={isRunning}
-            onClick={() => onSpawn({ additionalContext, stripSystemPrompt })}
+            onClick={() => onSpawn({ additionalContext })}
           >
             {isRunning ? 'Running…' : 'Regenerate Now'}
           </button>
@@ -395,15 +376,23 @@ function ScriptRow({ script, index, onUpdate, onRemove }) {
 function TextRow({ text, index, onUpdate, onRemove }) {
   const [label, setLabel] = useState(text.label)
   const [content, setContent] = useState(text.content)
+  const labelRef = useRef(null)
+  const contentRef = useRef(null)
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setLabel(text.label), [text.label])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setContent(text.content), [text.content])
-  const save = () => onUpdate(index, { label, content })
+  // Read from DOM on blur — captures values set by CDP fill / evaluate_script
+  // that bypass React's synthetic event system
+  const save = () => {
+    const l = labelRef.current?.value ?? label
+    const c = contentRef.current?.value ?? content
+    onUpdate(index, { label: l, content: c })
+  }
   return (
     <div className="rounded-lg border border-base-300 bg-base-200 p-2 mt-1 space-y-1.5">
       <div className="flex items-center gap-2">
-        <input type="text" className="input input-bordered input-xs flex-1 bg-base-100 text-xs"
+        <input ref={labelRef} type="text" className="input input-bordered input-xs flex-1 bg-base-100 text-xs"
           placeholder="Label" value={label}
           onChange={e => setLabel(e.target.value)} onBlur={save} />
         <button className="btn btn-xs btn-ghost opacity-40 hover:opacity-100 shrink-0"
@@ -412,7 +401,7 @@ function TextRow({ text, index, onUpdate, onRemove }) {
           checked={text.enabled}
           onChange={e => onUpdate(index, { enabled: e.target.checked })} />
       </div>
-      <textarea className="textarea textarea-bordered w-full text-xs bg-base-100 resize-y font-mono leading-relaxed"
+      <textarea ref={contentRef} className="textarea textarea-bordered w-full text-xs bg-base-100 resize-y font-mono leading-relaxed"
         rows={5} placeholder="Text to inject into the prompt…"
         value={content}
         onChange={e => setContent(e.target.value)} onBlur={save} />
@@ -542,14 +531,21 @@ function PingColumn({ routines, selectedRoutineId, onSelectRoutine, onAddRoutine
   return (
     <div className="flex-1 h-full overflow-y-auto bg-base-100 flex flex-col">
 
-      {/* Routine selector — show when routines are loaded */}
-      {routines.length > 0 && (
+      {/* Routine selector or empty state */}
+      {routines.length > 0 ? (
         <RoutineSelector
           routines={routines}
           selectedId={selectedRoutineId}
           onSelect={onSelectRoutine}
           onAdd={onAddRoutine}
         />
+      ) : (
+        <div className="border-b border-base-300 px-5 py-4 flex items-center justify-between">
+          <span className="text-sm text-neutral-content opacity-40">No routines</span>
+          <button className="btn btn-sm btn-primary" onClick={onAddRoutine}>
+            + New Routine
+          </button>
+        </div>
       )}
 
       {/* Big countdown */}
@@ -682,65 +678,62 @@ function PingColumn({ routines, selectedRoutineId, onSelectRoutine, onAddRoutine
       </div>
 
       {/* Delete routine */}
-      {routines.length > 1 && (
-        <div className="px-5 py-6">
-          <button
-            className="btn btn-outline btn-error btn-sm w-full"
-            onClick={() => {
-              if (window.confirm(`Delete "${ping.name ?? 'this routine'}"?`)) onDeleteRoutine(ping.id)
-            }}
-          >
-            Delete Routine
-          </button>
-        </div>
-      )}
+      <div className="px-5 py-6">
+        <button
+          className="btn btn-error btn-block"
+          onClick={() => {
+            if (window.confirm(`Delete "${ping.name ?? 'this routine'}"?`)) onDeleteRoutine(ping.id)
+          }}
+        >
+          Delete Routine
+        </button>
+      </div>
 
     </div>
   )
 }
 
-// ── API helpers ───────────────────────────────────────────────────────────────
+// ── API helpers (workspace-aware) ─────────────────────────────────────────────
 const ROUTINES_URL = '/api/activation/ping/routines'
 
-async function fetchRoutines() {
-  const res = await fetch(ROUTINES_URL)
-  const data = await res.json()
-  return data.routines ?? []
+function fetchRoutines(workspace) {
+  return fetch(wsUrl(ROUTINES_URL, workspace))
+    .then(res => res.json())
+    .then(data => data.routines ?? [])
 }
 
-async function apiCreateRoutine() {
-  const res = await fetch(ROUTINES_URL, {
+function apiCreateRoutine(workspace) {
+  return fetch(wsUrl(ROUTINES_URL, workspace), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: 'New Routine', enabled: false, intervalMinutes: 60 }),
-  })
-  return res.json()
+  }).then(res => res.json())
 }
 
-async function apiUpdateRoutine(id, patch) {
+function apiUpdateRoutine(id, patch, workspace) {
   const body = {}
   if ('name' in patch) body.name = patch.name
   if ('enabled' in patch) body.enabled = patch.enabled
   if ('interval_minutes' in patch) body.intervalMinutes = patch.interval_minutes
   if ('context_sources' in patch) body.contextSources = patch.context_sources
-  const res = await fetch(`${ROUTINES_URL}/${id}`, {
+  return fetch(wsUrl(`${ROUTINES_URL}/${id}`, workspace), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
-  return res.json()
+  }).then(res => res.json())
 }
 
-async function apiDeleteRoutine(id) {
-  await fetch(`${ROUTINES_URL}/${id}`, { method: 'DELETE' })
+function apiDeleteRoutine(id, workspace) {
+  return fetch(wsUrl(`${ROUTINES_URL}/${id}`, workspace), { method: 'DELETE' })
 }
 
-async function apiFireNow(id) {
-  await fetch(`${ROUTINES_URL}/${id}/now`, { method: 'POST' })
+function apiFireNow(id, workspace) {
+  return fetch(wsUrl(`${ROUTINES_URL}/${id}/now`, workspace), { method: 'POST' })
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
 export default function ActivationView() {
+  const { activeWorkspace } = useWorkspace()
   const [status, setStatus] = useState(null)
   const [job, setJob] = useState(null)
   const [schedule, setSchedule] = useState({ enabled: false, intervalDays: 7 })
@@ -756,9 +749,8 @@ export default function ActivationView() {
 
   const loadRoutines = useCallback(async () => {
     try {
-      const data = await fetchRoutines()
+      const data = await fetchRoutines(activeWorkspace)
       setRoutines(data)
-      // If nothing selected yet, or selected ID no longer exists, pick first
       setSelectedRoutineId(prev => {
         if (prev && data.some(r => r.id === prev)) return prev
         return data[0]?.id ?? null
@@ -766,20 +758,20 @@ export default function ActivationView() {
     } catch {
       // leave current state
     }
-  }, [])
+  }, [activeWorkspace])
 
-  const fetchStatus = () => {
-    fetch('/api/activation/status')
+  const fetchStatus = useCallback(() => {
+    fetch(wsUrl('/api/activation/status', activeWorkspace))
       .then(r => r.json())
       .then(setStatus)
       .catch(() => setStatus({ configured: false, connected: false, crystal: null }))
-  }
+  }, [activeWorkspace])
 
-  // Initial load
+  // Reload everything when workspace changes
   useEffect(() => {
     fetchStatus()
     loadRoutines()
-  }, [loadRoutines])
+  }, [fetchStatus, loadRoutines])
 
   // Poll routines every 10s to keep countdowns and status fresh
   useEffect(() => {
@@ -788,16 +780,16 @@ export default function ActivationView() {
   }, [loadRoutines])
 
   useEffect(() => {
-    fetch('/api/activation/schedule')
+    fetch(wsUrl('/api/activation/schedule', activeWorkspace))
       .then(r => r.json())
       .then(s => setSchedule({ enabled: s.enabled, intervalDays: s.interval_days }))
       .catch(() => {})
-  }, [])
+  }, [activeWorkspace])
 
   const handleScheduleChange = (patch) => {
     const next = { ...schedule, ...patch }
     setSchedule(next)
-    fetch('/api/activation/schedule', {
+    fetch(wsUrl('/api/activation/schedule', activeWorkspace), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: next.enabled, intervalDays: next.intervalDays }),
@@ -805,7 +797,6 @@ export default function ActivationView() {
   }
 
   const handlePingChange = async (patch) => {
-    // Optimistic update
     const updated = {
       ...ping,
       ...patch,
@@ -816,10 +807,8 @@ export default function ActivationView() {
     }
     setRoutines(prev => prev.map(r => r.id === ping.id ? updated : r))
 
-    // Persist to backend
     try {
-      const result = await apiUpdateRoutine(ping.id, updated)
-      // Merge server response (e.g. updated next_ping_at)
+      const result = await apiUpdateRoutine(ping.id, updated, activeWorkspace)
       setRoutines(prev => prev.map(r => r.id === ping.id ? result : r))
     } catch {
       // Revert on failure — next poll will correct
@@ -827,12 +816,12 @@ export default function ActivationView() {
   }
 
   const handleFireNow = () => {
-    if (ping.id) apiFireNow(ping.id)
+    if (ping.id) apiFireNow(ping.id, activeWorkspace)
   }
 
   const handleAddRoutine = async () => {
     try {
-      const newRoutine = await apiCreateRoutine()
+      const newRoutine = await apiCreateRoutine(activeWorkspace)
       setRoutines(prev => [...prev, newRoutine])
       setSelectedRoutineId(newRoutine.id)
     } catch {
@@ -842,7 +831,7 @@ export default function ActivationView() {
 
   const handleDeleteRoutine = async (id) => {
     try {
-      await apiDeleteRoutine(id)
+      await apiDeleteRoutine(id, activeWorkspace)
       setRoutines(prev => {
         const next = prev.filter(r => r.id !== id)
         if (selectedRoutineId === id && next.length) setSelectedRoutineId(next[0].id)
@@ -853,16 +842,16 @@ export default function ActivationView() {
     }
   }
 
-  const handleSpawn = async ({ additionalContext, stripSystemPrompt }) => {
-    const res = await fetch('/api/activation/crystal/spawn', {
+  const handleSpawn = async ({ additionalContext }) => {
+    const res = await fetch(wsUrl('/api/activation/crystal/spawn', activeWorkspace), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ additionalContext, stripSystemPrompt }),
+      body: JSON.stringify({ additionalContext }),
     })
     const { job_id } = await res.json()
     setJob({ id: job_id, progress: 0, stage: 'Starting…', status: 'running' })
 
-    const es = new EventSource(`/api/activation/crystal/stream/${job_id}`)
+    const es = new EventSource(wsUrl(`/api/activation/crystal/stream/${job_id}`, activeWorkspace))
     es.onmessage = (e) => {
       const event = JSON.parse(e.data)
       if (event.type === 'progress') {

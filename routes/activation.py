@@ -1,4 +1,4 @@
-"""Activation layer: Memento status, identity crystal, ping config."""
+"""Activation layer: Memento status, identity crystal, ping config — workspace-scoped."""
 
 import json
 import time
@@ -11,15 +11,24 @@ from services.memento import get_status
 from services.persistent_session import restart as session_restart
 from services.persistent_session import status as session_status
 from services.ping_scheduler import ping_scheduler
-from services.settings import load_settings, new_routine_id, save_settings
+from services.settings import (
+    load_settings,
+    new_routine_id,
+    save_settings,
+)
 
 bp = Blueprint("activation", __name__)
+
+
+def _ws():
+    """Get workspace from query string."""
+    return request.args.get("workspace")
 
 
 @bp.route("/api/activation/status")
 def activation_status():
     """Memento connectivity + identity crystal status."""
-    return jsonify(get_status())
+    return jsonify(get_status(workspace=_ws()))
 
 
 @bp.route("/api/activation/crystal/spawn", methods=["POST"])
@@ -28,7 +37,7 @@ def crystal_spawn():
     body = request.get_json(silent=True) or {}
     job_id = spawn(
         additional_context=body.get("additionalContext", ""),
-        strip_system=body.get("stripSystemPrompt", True),
+        workspace=_ws(),
     )
     return jsonify({"job_id": job_id})
 
@@ -42,13 +51,14 @@ def get_schedule():
 @bp.route("/api/activation/schedule", methods=["POST"])
 def set_schedule():
     """Configure crystal auto-regenerate schedule and persist to settings."""
+    workspace = _ws()
     body = request.get_json(silent=True) or {}
     enabled = bool(body.get("enabled", False))
     interval_days = max(1, int(body.get("intervalDays", 7)))
-    crystal_scheduler.configure(enabled, interval_days)
-    s = load_settings()
+    crystal_scheduler.configure(enabled, interval_days, workspace=workspace)
+    s = load_settings(workspace)
     s["crystal_regen"] = {"enabled": enabled, "interval_days": interval_days}
-    save_settings(s)
+    save_settings(s, workspace)
     return jsonify(crystal_scheduler.status)
 
 
@@ -57,13 +67,14 @@ def set_schedule():
 
 @bp.route("/api/activation/ping/routines")
 def list_routines():
-    """List all ping routines."""
-    return jsonify(ping_scheduler.status)
+    """List ping routines for the active workspace."""
+    return jsonify(ping_scheduler.status_for_workspace(_ws()))
 
 
 @bp.route("/api/activation/ping/routines", methods=["POST"])
 def create_routine():
     """Create a new ping routine."""
+    workspace = _ws()
     body = request.get_json(silent=True) or {}
     rid = new_routine_id()
     routine_dict = {
@@ -71,14 +82,15 @@ def create_routine():
         "name": body.get("name", "New Routine"),
         "enabled": bool(body.get("enabled", False)),
         "interval_minutes": max(1, int(body.get("intervalMinutes", 60))),
+        "workspace": workspace or "fathom",
         "context_sources": body.get("contextSources", {"time": True, "scripts": [], "texts": []}),
     }
     result = ping_scheduler.add_routine(routine_dict)
 
-    # Persist
-    s = load_settings()
+    # Persist to per-workspace settings
+    s = load_settings(workspace)
     s["ping"]["routines"].append(routine_dict)
-    save_settings(s)
+    save_settings(s, workspace)
 
     return jsonify(result), 201
 
@@ -86,7 +98,7 @@ def create_routine():
 @bp.route("/api/activation/ping/routines/<routine_id>")
 def get_routine(routine_id):
     """Get one routine."""
-    result = ping_scheduler.get_routine(routine_id)
+    result = ping_scheduler.get_routine(routine_id, workspace=_ws())
     if result is None:
         return jsonify({"error": "not found"}), 404
     return jsonify(result)
@@ -95,6 +107,7 @@ def get_routine(routine_id):
 @bp.route("/api/activation/ping/routines/<routine_id>", methods=["POST"])
 def update_routine(routine_id):
     """Update a routine's fields."""
+    workspace = _ws()
     body = request.get_json(silent=True) or {}
     kwargs = {}
     if "name" in body:
@@ -106,12 +119,12 @@ def update_routine(routine_id):
     if "contextSources" in body:
         kwargs["context_sources"] = body["contextSources"]
 
-    result = ping_scheduler.configure_routine(routine_id, **kwargs)
+    result = ping_scheduler.configure_routine(routine_id, workspace=workspace, **kwargs)
     if result is None:
         return jsonify({"error": "not found"}), 404
 
-    # Persist updated routine to settings
-    s = load_settings()
+    # Persist updated routine to per-workspace settings
+    s = load_settings(workspace)
     for saved_r in s["ping"]["routines"]:
         if saved_r["id"] == routine_id:
             if "name" in kwargs:
@@ -124,7 +137,7 @@ def update_routine(routine_id):
                 saved_r["context_sources"] = kwargs["context_sources"]
             saved_r["next_ping_at"] = result["next_ping_at"]
             break
-    save_settings(s)
+    save_settings(s, workspace)
 
     return jsonify(result)
 
@@ -132,14 +145,15 @@ def update_routine(routine_id):
 @bp.route("/api/activation/ping/routines/<routine_id>", methods=["DELETE"])
 def delete_routine(routine_id):
     """Delete a routine."""
-    removed = ping_scheduler.remove_routine(routine_id)
+    workspace = _ws()
+    removed = ping_scheduler.remove_routine(routine_id, workspace=workspace)
     if not removed:
         return jsonify({"error": "not found"}), 404
 
     # Remove from persisted settings
-    s = load_settings()
+    s = load_settings(workspace)
     s["ping"]["routines"] = [r for r in s["ping"]["routines"] if r["id"] != routine_id]
-    save_settings(s)
+    save_settings(s, workspace)
 
     return jsonify({"deleted": True})
 
@@ -147,7 +161,7 @@ def delete_routine(routine_id):
 @bp.route("/api/activation/ping/routines/<routine_id>/now", methods=["POST"])
 def fire_routine_now(routine_id):
     """Fire one routine immediately (non-blocking)."""
-    ping_scheduler.fire_now(routine_id)
+    ping_scheduler.fire_now(routine_id, workspace=_ws())
     return jsonify({"fired": True})
 
 
@@ -163,8 +177,8 @@ def get_ping():
 @bp.route("/api/activation/ping", methods=["POST"])
 def set_ping():
     """Update the first routine (backward compat)."""
+    workspace = _ws()
     body = request.get_json(silent=True) or {}
-    # Find first routine ID
     st = ping_scheduler.status
     routines = st.get("routines", [])
     if not routines:
@@ -181,8 +195,7 @@ def set_ping():
 
     result = ping_scheduler.configure_routine(first_id, **kwargs)
 
-    # Persist
-    s = load_settings()
+    s = load_settings(workspace)
     for saved_r in s["ping"]["routines"]:
         if saved_r["id"] == first_id:
             if "enabled" in kwargs:
@@ -194,7 +207,7 @@ def set_ping():
             if result:
                 saved_r["next_ping_at"] = result["next_ping_at"]
             break
-    save_settings(s)
+    save_settings(s, workspace)
 
     return jsonify(result or ping_scheduler.first_routine_status)
 
@@ -211,14 +224,14 @@ def ping_now():
 
 @bp.route("/api/activation/session")
 def get_session():
-    """Return persistent session status."""
-    return jsonify(session_status())
+    """Return persistent session status for the active workspace."""
+    return jsonify(session_status(workspace=_ws()))
 
 
 @bp.route("/api/activation/session/restart", methods=["POST"])
 def restart_session():
     """Kill and restart the persistent session with --continue."""
-    ok = session_restart()
+    ok = session_restart(workspace=_ws())
     return jsonify({"restarted": ok}), 200 if ok else 500
 
 

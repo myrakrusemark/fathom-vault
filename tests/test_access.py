@@ -68,7 +68,7 @@ def test_get_score_old_file():
     # Manually update last_opened to simulate old access
     con = access_mod._conn()
     con.execute(
-        "UPDATE file_access SET last_opened = ? WHERE path = ?", (thirty_days_ago, "old.md")
+        "UPDATE file_access_v2 SET last_opened = ? WHERE path = ?", (thirty_days_ago, "old.md")
     )
     con.commit()
     con.close()

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { useWorkspace, wsUrl } from '../WorkspaceContext.jsx'
 
 export default function TerminalPanel({ onClose, filePath }) {
+  const { activeWorkspace } = useWorkspace()
   const containerRef = useRef(null)
   const wsRef = useRef(null)
   const [lastSelection, setLastSelection] = useState('')
@@ -40,7 +42,9 @@ export default function TerminalPanel({ onClose, filePath }) {
     fitAddon.fit()
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal?session=${sessionId}`)
+    const wsParams = new URLSearchParams({ session: sessionId })
+    if (activeWorkspace) wsParams.set('workspace', activeWorkspace)
+    const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal?${wsParams}`)
     ws.binaryType = 'arraybuffer'
     wsRef.current = ws
 
@@ -74,7 +78,7 @@ export default function TerminalPanel({ onClose, filePath }) {
       term.dispose()
       wsRef.current = null
     }
-  }, [connectionKey])
+  }, [connectionKey, activeWorkspace])
 
   function sendToSession(text) {
     const ws = wsRef.current
@@ -105,7 +109,7 @@ export default function TerminalPanel({ onClose, filePath }) {
   async function handleRestart() {
     setRestarting(true)
     try {
-      const res = await fetch('/api/activation/session/restart', { method: 'POST' })
+      const res = await fetch(wsUrl('/api/activation/session/restart', activeWorkspace), { method: 'POST' })
       if (!res.ok) throw new Error('restart failed')
       // Wait for new session to initialize
       await new Promise(r => setTimeout(r, 3000))

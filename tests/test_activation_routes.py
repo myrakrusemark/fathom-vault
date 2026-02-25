@@ -26,14 +26,14 @@ def test_spawn_returns_job_id(client):
     with patch("routes.activation.spawn", return_value=fake_job_id) as mock_spawn:
         resp = client.post(
             "/api/activation/crystal/spawn",
-            json={"additionalContext": "some extra", "stripSystemPrompt": True},
+            json={"additionalContext": "some extra"},
         )
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["job_id"] == fake_job_id
     mock_spawn.assert_called_once_with(
         additional_context="some extra",
-        strip_system=True,
+        workspace=None,
     )
 
 
@@ -42,7 +42,7 @@ def test_spawn_empty_body_uses_defaults(client):
     with patch("routes.activation.spawn", return_value="xyz-456") as mock_spawn:
         resp = client.post("/api/activation/crystal/spawn")
     assert resp.status_code == 200
-    mock_spawn.assert_called_once_with(additional_context="", strip_system=True)
+    mock_spawn.assert_called_once_with(additional_context="", workspace=None)
 
 
 def test_spawn_partial_body(client):
@@ -50,10 +50,10 @@ def test_spawn_partial_body(client):
     with patch("routes.activation.spawn", return_value="partial-789") as mock_spawn:
         resp = client.post(
             "/api/activation/crystal/spawn",
-            json={"stripSystemPrompt": False},
+            json={"additionalContext": "partial context"},
         )
     assert resp.status_code == 200
-    mock_spawn.assert_called_once_with(additional_context="", strip_system=False)
+    mock_spawn.assert_called_once_with(additional_context="partial context", workspace=None)
 
 
 # ---------------------------------------------------------------------------

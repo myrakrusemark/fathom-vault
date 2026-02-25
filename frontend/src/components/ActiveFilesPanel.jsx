@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { useWorkspace, wsUrl } from "../WorkspaceContext.jsx"
 
 function relativeTime(ts) {
   if (!ts) return null
@@ -60,16 +61,17 @@ function FileCard({ file, onNavigate }) {
 }
 
 export default function ActiveFilesPanel({ onClose, onNavigate }) {
+  const { activeWorkspace } = useWorkspace()
   const [files, setFiles] = useState(null)
   const [coldExpanded, setColdExpanded] = useState(false)
   const [error, setError] = useState(null)
 
   const load = useCallback(() => {
-    fetch("/api/vault/activity?limit=50")
+    fetch(wsUrl("/api/vault/activity?limit=50", activeWorkspace))
       .then(r => r.json())
       .then(data => setFiles(data.files || []))
       .catch(e => setError(e.message))
-  }, [])
+  }, [activeWorkspace])
 
   useEffect(() => { load() }, [load])
 

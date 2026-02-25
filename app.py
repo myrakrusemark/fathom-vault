@@ -17,30 +17,50 @@ app.register_blueprint(activation_bp)
 app.register_blueprint(vault_bp)
 app.register_blueprint(settings_bp)
 
-# Start background indexer with persisted settings
+# Bootstrap all workspaces on startup
+import threading as _threading  # noqa: E402
+
 from services.crystal_scheduler import crystal_scheduler  # noqa: E402
 from services.indexer import indexer  # noqa: E402
 from services.persistent_session import ensure_running as session_ensure_running  # noqa: E402
 from services.ping_scheduler import ping_scheduler  # noqa: E402
-from services.settings import load_settings  # noqa: E402
+from services.settings import (  # noqa: E402
+    load_global_settings,
+    load_workspace_settings,
+)
 
-_startup_settings = load_settings()
+_global_settings = load_global_settings()
+_workspaces = _global_settings["workspaces"]
+_default_ws = _global_settings["default_workspace"]
 
-# Ensure persistent fathom-session is running (non-blocking: starts it in background)
-import threading as _threading  # noqa: E402
+# Ensure persistent sessions for all workspaces (non-blocking)
+for _ws_name in _workspaces:
+    _threading.Thread(target=session_ensure_running, args=(_ws_name,), daemon=True).start()
 
-_threading.Thread(target=session_ensure_running, daemon=True).start()
+# Collect all ping routines across workspaces (tagged with workspace)
+_all_routines = []
+for _ws_name in _workspaces:
+    _ws_settings = load_workspace_settings(_ws_name)
+    for _r in _ws_settings["ping"]["routines"]:
+        _r["workspace"] = _ws_name
+    _all_routines.extend(_ws_settings["ping"]["routines"])
 
+ping_scheduler.configure_all(_all_routines)
+
+# Configure indexer from default workspace settings (indexes all workspaces)
+_default_settings = load_workspace_settings(_default_ws)
 indexer.configure(
-    _startup_settings["background_index"]["enabled"],
-    _startup_settings["background_index"]["interval_minutes"],
-    _startup_settings["background_index"]["excluded_dirs"],
+    _default_settings["background_index"]["enabled"],
+    _default_settings["background_index"]["interval_minutes"],
+    _default_settings["background_index"]["excluded_dirs"],
 )
+
+# Configure crystal scheduler from default workspace
 crystal_scheduler.configure(
-    _startup_settings["crystal_regen"]["enabled"],
-    _startup_settings["crystal_regen"]["interval_days"],
+    _default_settings["crystal_regen"]["enabled"],
+    _default_settings["crystal_regen"]["interval_days"],
+    workspace=_default_ws,
 )
-ping_scheduler.configure_all(_startup_settings["ping"]["routines"])
 
 
 @app.route("/")

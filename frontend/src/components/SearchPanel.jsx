@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { useWorkspace, wsUrl } from '../WorkspaceContext.jsx'
 
 export default function SearchPanel({ onClose, onNavigate }) {
+  const { activeWorkspace } = useWorkspace()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -25,7 +27,7 @@ export default function SearchPanel({ onClose, onNavigate }) {
       setError(null)
       setSearched(true)
 
-      fetch(`/api/vault/search?q=${encodeURIComponent(query.trim())}`)
+      fetch(wsUrl(`/api/vault/search?q=${encodeURIComponent(query.trim())}`, activeWorkspace))
         .then(r => r.json())
         .then(data => {
           if (data.error) {
@@ -44,7 +46,7 @@ export default function SearchPanel({ onClose, onNavigate }) {
     }, 400)
 
     return () => clearTimeout(timer)
-  }, [query])
+  }, [query, activeWorkspace])
 
   function highlight(text, q) {
     if (!text) return null

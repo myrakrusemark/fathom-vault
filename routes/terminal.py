@@ -1,4 +1,4 @@
-"""Terminal WebSocket — pty bridge for the persistent fathom-session."""
+"""Terminal WebSocket — pty bridge for workspace-scoped fathom sessions."""
 
 import fcntl
 import json
@@ -9,32 +9,30 @@ import struct
 import subprocess
 import termios
 import threading
+from urllib.parse import parse_qs
 
 from flask_sock import Sock
 
-from services.persistent_session import _CLAUDE, _SESSION, _WORK_DIR, ensure_running
-from services.settings import load_settings
+from services.persistent_session import _CLAUDE, _session_name, _work_dir, ensure_running
 
 sock = Sock()
 
 
 @sock.route("/ws/terminal")
 def terminal(ws):
-    # Always connect to the single persistent fathom-session
-    tmux_session = _SESSION
+    # Extract workspace from query string
+    qs = parse_qs(ws.environ.get("QUERY_STRING", ""))
+    workspace = qs.get("workspace", [None])[0]
 
-    # Ensure session exists (starts Claude if needed)
-    ensure_running()
+    tmux_session = _session_name(workspace)
+    ensure_running(workspace)
 
-    settings = load_settings()
-    working_dir = settings.get("terminal", {}).get("working_dir", _WORK_DIR)
-
-    # Validate working directory exists
+    working_dir = _work_dir(workspace)
     if not os.path.isdir(working_dir):
         working_dir = os.path.expanduser("~")
 
     env = os.environ.copy()
-    env.pop("CLAUDECODE", None)  # prevent "cannot run inside Claude Code" error
+    env.pop("CLAUDECODE", None)
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
 
@@ -90,7 +88,7 @@ def terminal(ws):
             if isinstance(msg, str):
                 try:
                     parsed = json.loads(msg)
-                    if parsed.get("type") == "resize":
+                    if isinstance(parsed, dict) and parsed.get("type") == "resize":
                         cols = max(1, min(500, int(parsed.get("cols", 80))))
                         rows = max(1, min(200, int(parsed.get("rows", 24))))
                         fcntl.ioctl(
@@ -110,4 +108,3 @@ def terminal(ws):
             os.close(master_fd)
         except OSError:
             pass
-        # proc (tmux client) detaches naturally when the pty master closes — don't kill it

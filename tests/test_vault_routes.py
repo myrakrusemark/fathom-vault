@@ -35,7 +35,7 @@ def client(tmp_path):
     """Flask test client with VAULT_DIR and external services patched to temp directory."""
     vault_dir = str(tmp_path)
     with (
-        patch("routes.vault.VAULT_DIR", vault_dir),
+        patch("routes.vault.get_vault_path", return_value=(vault_dir, None)),
         patch("services.vault.VAULT_DIR", vault_dir),
         patch("services.links.VAULT_DIR", vault_dir),
         patch("routes.vault.get_activity_scores", return_value=[]),

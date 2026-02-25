@@ -1,6 +1,7 @@
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useEffect, useRef, useState } from 'react'
+import { useWorkspace, wsUrl } from '../WorkspaceContext.jsx'
 
 const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp)$/i
 
@@ -42,10 +43,11 @@ function FrontmatterBadges({ fm }) {
   )
 }
 
-function ImageRenderer({ src, alt }) {
-  const resolvedSrc = src && !src.startsWith('http') && !src.startsWith('/')
-    ? `/api/vault/raw/${src}`
-    : src
+function ImageRenderer({ src, alt, workspace }) {
+  let resolvedSrc = src
+  if (src && !src.startsWith('http') && !src.startsWith('/')) {
+    resolvedSrc = wsUrl(`/api/vault/raw/${src}`, workspace)
+  }
   return (
     <img
       src={resolvedSrc}
@@ -71,17 +73,17 @@ function WikiLink({ href, children, onWikilinkClick }) {
   return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
 }
 
-function BacklinksPanel({ filePath, onNavigate }) {
+function BacklinksPanel({ filePath, onNavigate, workspace }) {
   const [links, setLinks] = useState(null)
 
   useEffect(() => {
     if (!filePath) return
     setLinks(null)
-    fetch(`/api/vault/links/${filePath}`)
+    fetch(wsUrl(`/api/vault/links/${filePath}`, workspace))
       .then(r => r.json())
       .then(setLinks)
       .catch(() => setLinks({ backlinks: [] }))
-  }, [filePath])
+  }, [filePath, workspace])
 
   if (!links) return null
   const { backlinks = [], forward_links = [] } = links
@@ -129,7 +131,7 @@ function BacklinksPanel({ filePath, onNavigate }) {
   )
 }
 
-function EditorPanel({ filePath, initialContent, onSaved, onCancel }) {
+function EditorPanel({ filePath, initialContent, onSaved, onCancel, workspace }) {
   const [content, setContent] = useState(initialContent || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -143,7 +145,7 @@ function EditorPanel({ filePath, initialContent, onSaved, onCancel }) {
     setSaving(true)
     setError(null)
     try {
-      const r = await fetch(`/api/vault/file/${filePath}`, {
+      const r = await fetch(wsUrl(`/api/vault/file/${filePath}`, workspace), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
@@ -225,6 +227,7 @@ function EditorPanel({ filePath, initialContent, onSaved, onCancel }) {
 }
 
 export default function FileViewer({ filePath, data, loading, error, onWikilinkClick, onNavigate, onSaved }) {
+  const { activeWorkspace } = useWorkspace()
   const [editing, setEditing] = useState(false)
 
   // Exit edit mode when file changes
@@ -267,7 +270,7 @@ export default function FileViewer({ filePath, data, loading, error, onWikilinkC
           {filePath.split('/').pop()}
         </div>
         <img
-          src={`/api/vault/raw/${filePath}`}
+          src={wsUrl(`/api/vault/raw/${filePath}`, activeWorkspace)}
           alt={filePath.split('/').pop()}
           className="max-w-full rounded-xl"
           style={{ maxHeight: '80vh', objectFit: 'contain' }}
@@ -286,6 +289,7 @@ export default function FileViewer({ filePath, data, loading, error, onWikilinkC
           onSaved()
         }}
         onCancel={() => setEditing(false)}
+        workspace={activeWorkspace}
       />
     )
   }
@@ -313,7 +317,7 @@ export default function FileViewer({ filePath, data, loading, error, onWikilinkC
         <Markdown
           remarkPlugins={[remarkGfm]}
           components={{
-            img: ({ node, ...props }) => <ImageRenderer {...props} />,
+            img: ({ node, ...props }) => <ImageRenderer {...props} workspace={activeWorkspace} />,
             a: ({ node, href, children, ...props }) => (
               <WikiLink href={href} onWikilinkClick={onWikilinkClick} {...props}>
                 {children}
@@ -325,7 +329,7 @@ export default function FileViewer({ filePath, data, loading, error, onWikilinkC
         </Markdown>
       </div>
 
-      <BacklinksPanel filePath={filePath} onNavigate={onNavigate} />
+      <BacklinksPanel filePath={filePath} onNavigate={onNavigate} workspace={activeWorkspace} />
     </div>
   )
 }

@@ -9,10 +9,11 @@ from config import IMAGE_EXTENSIONS, VAULT_DIR
 from services.schema import validate_frontmatter
 
 
-def _safe_path(rel_path: str) -> tuple[str, str | None]:
-    """Resolve and validate that path stays within VAULT_DIR. Returns (abs_path, error)."""
-    abs_path = os.path.realpath(os.path.join(VAULT_DIR, rel_path))
-    vault_real = os.path.realpath(VAULT_DIR)
+def _safe_path(rel_path: str, vault_dir: str = None) -> tuple[str, str | None]:
+    """Resolve and validate that path stays within vault_dir. Returns (abs_path, error)."""
+    vault_dir = vault_dir or VAULT_DIR
+    abs_path = os.path.realpath(os.path.join(vault_dir, rel_path))
+    vault_real = os.path.realpath(vault_dir)
     if abs_path != vault_real and not abs_path.startswith(vault_real + os.sep):
         return abs_path, "Path traversal detected"
     return abs_path, None
@@ -40,7 +41,7 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
         import datetime as _dt
 
         frontmatter = {
-            k: v.isoformat() if isinstance(v, (_dt.date, _dt.datetime)) else v
+            k: v.isoformat() if isinstance(v, _dt.date | _dt.datetime) else v
             for k, v in raw.items()
         }
         body = "\n".join(lines[end_idx + 1 :]).lstrip("\n")
@@ -49,11 +50,12 @@ def parse_frontmatter(content: str) -> tuple[dict, str]:
         return {}, content
 
 
-def list_folder(folder_path: str = "") -> dict:
+def list_folder(folder_path: str = "", vault_dir: str = None) -> dict:
     """List markdown and image files in a vault folder. Returns {folder, files} or {error}."""
-    abs_folder = os.path.join(VAULT_DIR, folder_path) if folder_path else VAULT_DIR
+    vault_dir = vault_dir or VAULT_DIR
+    abs_folder = os.path.join(vault_dir, folder_path) if folder_path else vault_dir
     abs_folder = os.path.realpath(abs_folder)
-    vault_real = os.path.realpath(VAULT_DIR)
+    vault_real = os.path.realpath(vault_dir)
 
     if abs_folder != vault_real and not abs_folder.startswith(vault_real + os.sep):
         return {"error": "Path traversal detected"}
@@ -115,9 +117,9 @@ def list_folder(folder_path: str = "") -> dict:
         return {"error": str(e)}
 
 
-def read_file(rel_path: str) -> dict:
+def read_file(rel_path: str, vault_dir: str = None) -> dict:
     """Read a vault file. Returns {path, content, frontmatter, body, modified, size} or {error}."""
-    abs_path, err = _safe_path(rel_path)
+    abs_path, err = _safe_path(rel_path, vault_dir)
     if err:
         return {"error": err}
     if not os.path.isfile(abs_path):
@@ -140,9 +142,9 @@ def read_file(rel_path: str) -> dict:
         return {"error": str(e)}
 
 
-def write_file(rel_path: str, content: str) -> dict:
+def write_file(rel_path: str, content: str, vault_dir: str = None) -> dict:
     """Write content to a vault file. Validates frontmatter if present. Returns {ok} or {error}."""
-    abs_path, err = _safe_path(rel_path)
+    abs_path, err = _safe_path(rel_path, vault_dir)
     if err:
         return {"error": err}
 
@@ -161,9 +163,9 @@ def write_file(rel_path: str, content: str) -> dict:
         return {"error": str(e)}
 
 
-def append_file(rel_path: str, content: str) -> dict:
+def append_file(rel_path: str, content: str, vault_dir: str = None) -> dict:
     """Append content to a vault file. Creates with minimal frontmatter if absent."""
-    abs_path, err = _safe_path(rel_path)
+    abs_path, err = _safe_path(rel_path, vault_dir)
     if err:
         return {"error": err}
 

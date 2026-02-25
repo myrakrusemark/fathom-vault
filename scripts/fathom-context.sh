@@ -6,11 +6,10 @@
 #   fathom-context.sh --sections time,weather       # just time + weather, plain text
 #   fathom-context.sh --sections time,weather --format hook-json   # UserPromptSubmit hook format
 #
-# Sections: time, weather, dashboard, browser
+# Sections: time, weather, dashboard
 #   dashboard = startup context (identity, memory systems, vault activity, moltbook, hifathom, memento stats)
 #   time      = current date/time
 #   weather   = weather from dashboard cache or NOAA fallback
-#   browser   = Chrome + debugging status
 #
 # Formats: plain (default), hook-json (UserPromptSubmit JSON with systemMessage + additionalContext)
 #
@@ -131,23 +130,6 @@ print(text)
         else
             OUTPUT="$FALLBACK"
         fi
-    fi
-fi
-
-# --- Browser ---
-if has_section browser; then
-    BROWSER_STATUS=""
-    if pgrep -a chrome 2>/dev/null | grep -q "remote-debugging" && curl -sf -m 1 http://localhost:9222/json/version > /dev/null 2>&1; then
-        BROWSER_STATUS="### Browser Status
-Chrome is running with remote debugging. Use mcp__chrome-devtools__* tools for browser automation."
-    else
-        BROWSER_STATUS="### Browser Status
-Chrome debugging not available. Start with: google-chrome --remote-debugging-port=9222 &"
-    fi
-    if [ -n "$OUTPUT" ]; then
-        OUTPUT="$OUTPUT"$'\n\n'"$BROWSER_STATUS"
-    else
-        OUTPUT="$BROWSER_STATUS"
     fi
 fi
 

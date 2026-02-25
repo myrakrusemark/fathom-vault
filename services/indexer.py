@@ -1,10 +1,10 @@
-"""Background vault re-indexer — runs qmd update + qmd embed at idle CPU priority."""
+"""Background vault re-indexer — runs qmd update + qmd embed for all workspaces."""
 
 import subprocess
 import threading
 from datetime import datetime
 
-from config import VAULT_DIR
+from config import get_vault_path, get_workspaces
 
 
 class BackgroundIndexer:
@@ -38,16 +38,22 @@ class BackgroundIndexer:
         self._timer.start()
 
     def _run(self) -> None:
-        subprocess.run(
-            ["nice", "-n", "19", "qmd", "update"],
-            cwd=VAULT_DIR,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["nice", "-n", "19", "qmd", "embed"],
-            cwd=VAULT_DIR,
-            capture_output=True,
-        )
+        # Index all workspaces sequentially
+        workspaces = get_workspaces()
+        for ws_name in workspaces:
+            vault_path, _err = get_vault_path(ws_name)
+            if not vault_path:
+                continue
+            subprocess.run(
+                ["nice", "-n", "19", "qmd", "update"],
+                cwd=vault_path,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["nice", "-n", "19", "qmd", "embed"],
+                cwd=vault_path,
+                capture_output=True,
+            )
         self._last_indexed = datetime.now().isoformat()
         with self._lock:
             if self._enabled:

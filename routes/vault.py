@@ -8,13 +8,29 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
-from config import IMAGE_EXTENSIONS, VAULT_DIR
+from config import IMAGE_EXTENSIONS, get_vault_path
 from services.access import get_activity_scores, get_scores_for_paths, record_access
 from services.links import find_file, get_file_links
 from services.settings import load_settings
 from services.vault import append_file, list_folder, read_file, write_file
 
 bp = Blueprint("vault", __name__)
+
+
+def _resolve_workspace():
+    """Resolve workspace from ?workspace query param.
+
+    Returns (vault_dir, workspace_name, error_response, status_code).
+    """
+    workspace = request.args.get("workspace")
+    vault_dir, err = get_vault_path(workspace)
+    if err:
+        return None, None, jsonify(err), 400
+    # Resolve actual workspace name (for access tracking)
+    from config import get_default_workspace
+
+    ws_name = workspace or get_default_workspace() or "fathom"
+    return vault_dir, ws_name, None, None
 
 
 def _scan_tree(path: str, prefix: str = "") -> list[dict]:
@@ -51,13 +67,17 @@ def _scan_tree(path: str, prefix: str = "") -> list[dict]:
 @bp.route("/api/vault")
 def vault_tree():
     """Folder tree — recursive, md + image counts."""
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
     try:
-        root_md = glob.glob(os.path.join(VAULT_DIR, "*.md"))
+        root_md = glob.glob(os.path.join(vault_dir, "*.md"))
         root_img = []
         for ext in IMAGE_EXTENSIONS:
-            root_img.extend(glob.glob(os.path.join(VAULT_DIR, f"*{ext}")))
+            root_img.extend(glob.glob(os.path.join(vault_dir, f"*{ext}")))
 
-        tree = _scan_tree(VAULT_DIR)
+        tree = _scan_tree(vault_dir)
 
         if root_md or root_img:
             all_root = root_md + root_img
@@ -83,7 +103,11 @@ def vault_tree():
 @bp.route("/api/vault/folder/<path:folder_path>")
 def vault_folder(folder_path):
     """Files in a folder (title, date, tags, preview, activity scores). Supports nested paths."""
-    result = list_folder(folder_path)
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
+    result = list_folder(folder_path, vault_dir=vault_dir)
     if "error" in result:
         code = 404 if result["error"] in ("Folder not found",) else 400
         return jsonify(result), code
@@ -96,7 +120,7 @@ def vault_folder(folder_path):
         if f.get("type") == "markdown"
     ]
     if md_paths:
-        scores = get_scores_for_paths(md_paths)
+        scores = get_scores_for_paths(md_paths, workspace=ws_name)
         for f in files:
             if f.get("type") == "markdown":
                 rel = folder_path + "/" + f["name"] if folder_path else f["name"]
@@ -111,7 +135,11 @@ def vault_folder(folder_path):
 @bp.route("/api/vault/file/<path:rel_path>", methods=["GET"])
 def vault_file_get(rel_path):
     """File content + parsed frontmatter."""
-    result = read_file(rel_path)
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
+    result = read_file(rel_path, vault_dir=vault_dir)
     if "error" in result:
         code = 404 if result["error"] == "File not found" else 400
         return jsonify(result), code
@@ -121,12 +149,16 @@ def vault_file_get(rel_path):
 @bp.route("/api/vault/file/<path:rel_path>", methods=["POST"])
 def vault_file_post(rel_path):
     """Write (create/overwrite) a vault file."""
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
     data = request.get_json(silent=True) or {}
     content = data.get("content", "")
     if not isinstance(content, str):
         return jsonify({"error": "content must be a string"}), 400
 
-    result = write_file(rel_path, content)
+    result = write_file(rel_path, content, vault_dir=vault_dir)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
@@ -135,12 +167,16 @@ def vault_file_post(rel_path):
 @bp.route("/api/vault/append/<path:rel_path>", methods=["POST"])
 def vault_append(rel_path):
     """Append a content block to a vault file (creates if absent)."""
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
     data = request.get_json(silent=True) or {}
     content = data.get("content", "")
     if not isinstance(content, str):
         return jsonify({"error": "content must be a string"}), 400
 
-    result = append_file(rel_path, content)
+    result = append_file(rel_path, content, vault_dir=vault_dir)
     if "error" in result:
         return jsonify(result), 400
     return jsonify(result)
@@ -149,17 +185,25 @@ def vault_append(rel_path):
 @bp.route("/api/vault/links/<path:rel_path>")
 def vault_links(rel_path):
     """Forward links and backlinks for a vault file (V-3/V-6)."""
-    result = get_file_links(rel_path)
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
+    result = get_file_links(rel_path, vault_dir=vault_dir)
     return jsonify(result)
 
 
 @bp.route("/api/vault/resolve")
 def vault_resolve():
     """Resolve a wikilink name to its full relative path (V-5)."""
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
     name = request.args.get("name", "").strip()
     if not name:
         return jsonify({"error": "name parameter required"}), 400
-    path = find_file(name)
+    path = find_file(name, vault_dir=vault_dir)
     if path:
         return jsonify({"path": path})
     return jsonify({"error": f"Not found: {name}"}), 404
@@ -167,9 +211,13 @@ def vault_resolve():
 
 @bp.route("/api/vault/raw/<path:rel_path>")
 def vault_raw(rel_path):
-    """Serve raw file (images). Validates path stays within VAULT_DIR."""
-    abs_path = os.path.realpath(os.path.join(VAULT_DIR, rel_path))
-    vault_real = os.path.realpath(VAULT_DIR)
+    """Serve raw file (images). Validates path stays within vault dir."""
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
+    abs_path = os.path.realpath(os.path.join(vault_dir, rel_path))
+    vault_real = os.path.realpath(vault_dir)
     if abs_path != vault_real and not abs_path.startswith(vault_real + os.sep):
         return jsonify({"error": "Invalid path"}), 403
     if not os.path.isfile(abs_path):
@@ -186,16 +234,20 @@ def vault_raw(rel_path):
 @bp.route("/api/vault/access", methods=["POST"])
 def vault_record_access():
     """Record a file open event.  Body: {"path": "relative/path.md"}."""
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
     data = request.get_json(silent=True) or {}
     path = data.get("path", "").strip()
     if not path:
         return jsonify({"error": "path is required"}), 400
-    # Validate the path stays within VAULT_DIR
-    abs_path = os.path.realpath(os.path.join(VAULT_DIR, path))
-    vault_real = os.path.realpath(VAULT_DIR)
+    # Validate the path stays within vault dir
+    abs_path = os.path.realpath(os.path.join(vault_dir, path))
+    vault_real = os.path.realpath(vault_dir)
     if abs_path != vault_real and not abs_path.startswith(vault_real + os.sep):
         return jsonify({"error": "Invalid path"}), 400
-    record_access(path)
+    record_access(path, workspace=ws_name)
     return jsonify({"ok": True})
 
 
@@ -204,10 +256,15 @@ def vault_activity():
     """Return files sorted by activity score.
 
     Query params:
-        limit   int  (default 20)
-        folder  str  optional -- filter to a specific folder prefix
+        limit     int  (default 20)
+        folder    str  optional -- filter to a specific folder prefix
+        workspace str  optional -- workspace name
     """
-    settings = load_settings()
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
+    settings = load_settings(ws_name)
     activity_cfg = settings.get("activity", {})
     half_life = float(activity_cfg.get("decay_halflife_days", 7))
     recency_window = float(activity_cfg.get("recency_window_hours", 48))
@@ -223,6 +280,7 @@ def vault_activity():
 
     files = get_activity_scores(
         limit=limit * 3,  # fetch extra so we can filter and still hit the limit
+        workspace=ws_name,
         half_life_days=half_life,
         recency_window_hours=recency_window,
         max_boost=max_boost,
@@ -318,19 +376,25 @@ def vault_search():
     """Full-text search via qmd. Reads settings for defaults; accepts override params.
 
     Query params (all optional — fall back to settings when absent):
-        q        Search query string (required).
-        n        Result limit override (int).
-        mode     Search mode override: "hybrid" or "keyword".
-        timeout  Timeout override in seconds (int).
+        q         Search query string (required).
+        workspace Workspace name (uses default if omitted).
+        n         Result limit override (int).
+        mode      Search mode override: "hybrid" or "keyword".
+        timeout   Timeout override in seconds (int).
 
     Response: {"results": [...], "excluded": N}
         excluded — number of results filtered by excluded_dirs setting.
     """
+    # Validate workspace exists (even though qmd uses collection name directly)
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
     q = request.args.get("q", "").strip()
     if not q:
         return jsonify({"results": [], "excluded": 0})
 
-    settings = load_settings()
+    settings = load_settings(ws_name)
     mcp = settings["mcp"]
     excluded_dirs = settings["background_index"].get("excluded_dirs", [])
 
@@ -356,6 +420,11 @@ def vault_search():
         cmd = ["qmd", "search", q, "-n", str(n)]
     else:
         cmd = ["qmd", "query", q, "-n", str(n)]
+
+    # Scope search to workspace collection if a specific workspace was requested
+    workspace = request.args.get("workspace")
+    if workspace:
+        cmd.extend(["-c", workspace])
 
     try:
         result = subprocess.run(

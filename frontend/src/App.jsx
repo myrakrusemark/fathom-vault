@@ -7,8 +7,19 @@ import SearchPanel from './components/SearchPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 import TerminalPanel from './components/TerminalPanel.jsx'
 import ActivationView from './components/ActivationView.jsx'
+import WorkspaceSelector from './components/WorkspaceSelector.jsx'
+import { WorkspaceProvider, useWorkspace, wsUrl } from './WorkspaceContext.jsx'
 
 export default function App() {
+  return (
+    <WorkspaceProvider>
+      <AppInner />
+    </WorkspaceProvider>
+  )
+}
+
+function AppInner() {
+  const { activeWorkspace } = useWorkspace()
   const [folders, setFolders] = useState([])
   const [selectedFolder, setSelectedFolder] = useState(null)
   const [files, setFiles] = useState(null)
@@ -50,28 +61,32 @@ export default function App() {
       .catch(() => {})
   }, [])
 
-  // Load folder tree on mount
+  // Load folder tree on mount and when workspace changes
   useEffect(() => {
-    fetch('/api/vault')
+    if (!activeWorkspace) return
+    fetch(wsUrl('/api/vault', activeWorkspace))
       .then(r => r.json())
       .then(data => {
         setFolders(data)
+        setSelectedFile(null)
+        setFileData(null)
         if (data.length > 0) setSelectedFolder(data[0].path)
+        else setSelectedFolder(null)
       })
       .catch(console.error)
-  }, [])
+  }, [activeWorkspace])
 
-  // Load files when folder changes
+  // Load files when folder or workspace changes
   useEffect(() => {
-    if (selectedFolder === null) return
+    if (selectedFolder === null || !activeWorkspace) return
     const endpoint = selectedFolder === ''
       ? '/api/vault/folder/'
       : `/api/vault/folder/${selectedFolder}`
-    fetch(endpoint)
+    fetch(wsUrl(endpoint, activeWorkspace))
       .then(r => r.json())
       .then(data => setFiles(data.files || []))
       .catch(console.error)
-  }, [selectedFolder])
+  }, [selectedFolder, activeWorkspace])
 
   // Load file content when file selection or refreshKey changes
   useEffect(() => {
@@ -87,7 +102,7 @@ export default function App() {
     setFileError(null)
     setFileData(null)
 
-    fetch(`/api/vault/file/${selectedFile}`)
+    fetch(wsUrl(`/api/vault/file/${selectedFile}`, activeWorkspace))
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
@@ -100,7 +115,7 @@ export default function App() {
         setFileError(e.message)
         setFileLoading(false)
       })
-  }, [selectedFile, refreshKey])
+  }, [selectedFile, refreshKey, activeWorkspace])
 
   function handleFolderSelect(path) {
     setSelectedFolder(path)
@@ -119,7 +134,7 @@ export default function App() {
   // Resolve a wikilink name → path, then navigate (V-5)
   const handleWikilinkClick = useCallback(async (name) => {
     try {
-      const r = await fetch(`/api/vault/resolve?name=${encodeURIComponent(name)}`)
+      const r = await fetch(wsUrl(`/api/vault/resolve?name=${encodeURIComponent(name)}`, activeWorkspace))
       const data = await r.json()
       if (data.path) {
         navigateToFile(data.path)
@@ -127,7 +142,7 @@ export default function App() {
     } catch (e) {
       console.error('Wikilink resolve failed:', e)
     }
-  }, [])
+  }, [activeWorkspace])
 
   // After a save, reload file content (V-11)
   const handleSaved = useCallback(() => {
@@ -294,6 +309,7 @@ export default function App() {
               a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
+        <WorkspaceSelector />
       </div>
 
       {/* Main content below header */}

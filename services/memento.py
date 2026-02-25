@@ -1,4 +1,4 @@
-"""Memento SaaS client — connectivity check and identity crystal fetch."""
+"""Memento SaaS client — connectivity check, identity crystal read/write."""
 
 import json
 import os
@@ -23,7 +23,42 @@ def _load_memento_config() -> dict:
     return {}
 
 
-def get_status() -> dict:
+def write_crystal(crystal_text: str, workspace: str = None) -> dict:
+    """Write an identity crystal to Memento SaaS.
+
+    Returns dict with keys: ok (bool), error (str, optional).
+    """
+    cfg = _load_memento_config()
+    api_key = cfg.get("apiKey") or os.getenv("MEMENTO_API_KEY", "")
+    workspace = workspace or cfg.get("workspace") or os.getenv("MEMENTO_WORKSPACE", "default")
+    api_url = os.getenv("MEMENTO_API_URL", _DEFAULT_API_URL)
+
+    if not api_key:
+        return {"ok": False, "error": "No API key configured"}
+
+    body = json.dumps({"crystal": crystal_text}).encode()
+    req = urllib.request.Request(
+        f"{api_url}/v1/identity",
+        data=body,
+        method="PUT",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "X-Memento-Workspace": workspace,
+            "Content-Type": "application/json",
+            "User-Agent": "fathom-vault/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            json.loads(resp.read())  # consume response
+        return {"ok": True}
+    except urllib.error.URLError as e:
+        return {"ok": False, "error": str(e.reason)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+
+
+def get_status(workspace: str = None) -> dict:
     """Return Memento configuration + crystal status.
 
     Reads credentials from .memento.json (walking upward from cwd), falling
@@ -37,7 +72,7 @@ def get_status() -> dict:
     """
     cfg = _load_memento_config()
     api_key = cfg.get("apiKey") or os.getenv("MEMENTO_API_KEY", "")
-    workspace = cfg.get("workspace") or os.getenv("MEMENTO_WORKSPACE", "default")
+    workspace = workspace or cfg.get("workspace") or os.getenv("MEMENTO_WORKSPACE", "default")
     api_url = os.getenv("MEMENTO_API_URL", _DEFAULT_API_URL)
 
     if not api_key:
