@@ -181,8 +181,8 @@ function AppInner() {
           className={`ml-auto p-1 rounded hover:bg-base-300 transition-colors ${
             activeFilesOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
           }`}
-          aria-label="Toggle active files"
-          title="Active files"
+          aria-label="Toggle file activity"
+          title="File activity"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

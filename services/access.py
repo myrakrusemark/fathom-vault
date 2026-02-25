@@ -108,7 +108,7 @@ def get_activity_scores(
         return []
 
     rows = con.execute(
-        "SELECT path, open_count, last_opened FROM file_access_v2 "
+        "SELECT path, open_count, last_opened, first_opened FROM file_access_v2 "
         "WHERE workspace = ? ORDER BY last_opened DESC",
         (workspace,),
     ).fetchall()
@@ -128,6 +128,7 @@ def get_activity_scores(
                 "path": row["path"],
                 "open_count": row["open_count"],
                 "last_opened": row["last_opened"],
+                "first_opened": row["first_opened"],
                 "score": score,
             }
         )
