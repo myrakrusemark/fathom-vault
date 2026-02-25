@@ -8,6 +8,7 @@ import SettingsPanel from './components/SettingsPanel.jsx'
 import TerminalPanel from './components/TerminalPanel.jsx'
 import ActivationView from './components/ActivationView.jsx'
 import WorkspaceSelector from './components/WorkspaceSelector.jsx'
+import ViewTabs from './components/ViewTabs.jsx'
 import { WorkspaceProvider, useWorkspace, wsUrl } from './WorkspaceContext.jsx'
 
 export default function App() {
@@ -154,75 +155,7 @@ function AppInner() {
       {/* Header bar */}
       <div className="fixed top-0 left-0 right-0 z-10 h-10 bg-base-200 border-b border-base-300
         flex items-center px-4 gap-3">
-        <div className="dropdown">
-          <div tabIndex={0} role="button" className="flex items-center gap-1 cursor-pointer select-none">
-            <span className="text-primary font-semibold text-sm tracking-wide">
-              {currentView === 'activation' ? 'Activation' : 'Fathom Vault'}
-            </span>
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
-              fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              className="text-primary opacity-60">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </div>
-          <ul tabIndex={0} className="dropdown-content menu bg-base-200 border border-base-300 rounded-box z-20 w-48 p-1 shadow-lg mt-1">
-            <li>
-              <a href="https://hifathom.com/dashboard/" target="_blank" rel="noopener noreferrer"
-                className="text-sm flex items-center gap-2">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#06B6D4' }} />
-                Memento
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                  className="opacity-50 ml-auto">
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-              </a>
-            </li>
-            <li>
-              {currentView === 'vault' ? (
-                <span className="text-primary font-semibold text-sm pointer-events-none flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#8B5CF6' }} />
-                  Vault
-                  <span className="ml-auto text-[10px] opacity-50 font-normal">current</span>
-                </span>
-              ) : (
-                <button
-                  className="text-sm text-left w-full flex items-center gap-2"
-                  onClick={() => { setCurrentView('vault'); document.activeElement.blur() }}
-                >
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#8B5CF6' }} />
-                  Vault
-                </button>
-              )}
-            </li>
-            <li>
-              {currentView === 'activation' ? (
-                <span className="text-primary font-semibold text-sm pointer-events-none flex items-center gap-2">
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#F4A261' }} />
-                  Activation
-                  <span className="ml-auto text-[10px] opacity-50 font-normal">current</span>
-                </span>
-              ) : (
-                <button
-                  className="text-sm text-left w-full flex items-center gap-2"
-                  onClick={() => { setCurrentView('activation'); document.activeElement.blur() }}
-                >
-                  <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#F4A261' }} />
-                  Activation
-                </button>
-              )}
-            </li>
-            <li>
-              <span className="text-sm flex items-center gap-2 opacity-40 pointer-events-none">
-                <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#4ADE80' }} />
-                Crystallization
-                <span className="ml-auto text-[10px] font-normal">soon</span>
-              </span>
-            </li>
-          </ul>
-        </div>
+        <ViewTabs currentView={currentView} setCurrentView={setCurrentView} />
         {currentView !== 'activation' && (
           <>
             {selectedFolder !== null && (
