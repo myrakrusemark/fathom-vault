@@ -687,6 +687,105 @@ function handleSend({ workspace, message, from }) {
   };
 }
 
+// --- Room handlers ---------------------------------------------------------
+
+function getRoomDb() {
+  const db = new Database(DB_PATH);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_messages (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      room      TEXT NOT NULL,
+      sender    TEXT NOT NULL,
+      message   TEXT NOT NULL,
+      timestamp REAL NOT NULL
+    )
+  `);
+  // Index may already exist — safe to re-run
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_room_messages_room_ts
+      ON room_messages(room, timestamp)
+  `);
+  return db;
+}
+
+function formatTimeAgo(timestampSec) {
+  const diffSec = Date.now() / 1000 - timestampSec;
+  if (diffSec < 60) return "just now";
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  return `${Math.floor(diffSec / 86400)}d ago`;
+}
+
+function handleRoomPost({ room, message, sender }) {
+  if (!room) return { error: "room is required" };
+  if (!message) return { error: "message is required" };
+  const who = sender || "unknown";
+  const timestamp = Date.now() / 1000;
+
+  const db = getRoomDb();
+  try {
+    db.prepare(
+      "INSERT INTO room_messages (room, sender, message, timestamp) VALUES (?, ?, ?, ?)"
+    ).run(room, who, message, timestamp);
+    return { ok: true, room, sender: who, timestamp, message_length: message.length };
+  } finally {
+    db.close();
+  }
+}
+
+function handleRoomRead({ room, hours }) {
+  if (!room) return { error: "room is required" };
+  const windowHours = hours || 24;
+  const cutoff = Date.now() / 1000 - windowHours * 3600;
+
+  const db = getRoomDb();
+  try {
+    const rows = db.prepare(
+      "SELECT id, sender, message, timestamp FROM room_messages WHERE room = ? AND timestamp > ? ORDER BY timestamp ASC"
+    ).all(room, cutoff);
+
+    const messages = rows.map(r => ({
+      id: r.id,
+      sender: r.sender,
+      message: r.message,
+      timestamp: r.timestamp,
+      time_ago: formatTimeAgo(r.timestamp),
+    }));
+
+    return { room, messages, count: messages.length, window_hours: windowHours };
+  } finally {
+    db.close();
+  }
+}
+
+function handleRoomList() {
+  const db = getRoomDb();
+  try {
+    const rows = db.prepare(`
+      SELECT
+        room,
+        COUNT(*) as message_count,
+        MAX(timestamp) as last_activity,
+        (SELECT sender FROM room_messages r2
+         WHERE r2.room = r1.room ORDER BY timestamp DESC LIMIT 1) as last_sender
+      FROM room_messages r1
+      GROUP BY room
+      ORDER BY last_activity DESC
+    `).all();
+
+    const rooms = rows.map(r => ({
+      name: r.room,
+      message_count: r.message_count,
+      last_activity: r.last_activity,
+      last_sender: r.last_sender,
+    }));
+
+    return { rooms, count: rooms.length };
+  } finally {
+    db.close();
+  }
+}
+
 // --- Search handlers -------------------------------------------------------
 
 /**
@@ -1001,6 +1100,62 @@ const tools = [
     },
   },
   {
+    name: "fathom_room_post",
+    description:
+      "Post a message to a shared room. Rooms are created implicitly on first post. " +
+      "Use this for ambient, multilateral communication — unlike fathom_send (point-to-point DM), " +
+      "room messages are visible to all participants. Responding is optional — use `<...>` for active silence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room: {
+          type: "string",
+          description: "Room name, e.g. 'general', 'navier-stokes'. Created on first post.",
+        },
+        message: {
+          type: "string",
+          description: "Message to post",
+        },
+        sender: {
+          type: "string",
+          description: "Who is posting — workspace name or 'myra'",
+        },
+      },
+      required: ["room", "message", "sender"],
+    },
+  },
+  {
+    name: "fathom_room_read",
+    description:
+      "Read recent messages from a shared room. Returns messages from the last N hours " +
+      "(default 24). Use during orient phase to catch up on cross-workspace conversation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room: {
+          type: "string",
+          description: "Room name to read from",
+        },
+        hours: {
+          type: "number",
+          description: "How many hours of history to return. Default: 24.",
+        },
+      },
+      required: ["room"],
+    },
+  },
+  {
+    name: "fathom_room_list",
+    description:
+      "List all rooms with activity summary — message count, last activity time, and last sender. " +
+      "Use to discover active rooms.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
     name: "fathom_vault_search",
     description:
       "Keyword search (BM25) across vault files — start here for most searches. Fast, " +
@@ -1103,6 +1258,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       break;
     case "fathom_send":
       result = handleSend(args);
+      break;
+    case "fathom_room_post":
+      result = handleRoomPost(args);
+      break;
+    case "fathom_room_read":
+      result = handleRoomRead(args);
+      break;
+    case "fathom_room_list":
+      result = handleRoomList();
       break;
     case "fathom_vault_search":
       result = handleSearch("search", args);
