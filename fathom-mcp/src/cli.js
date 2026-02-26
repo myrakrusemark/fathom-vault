@@ -166,6 +166,7 @@ async function runInit() {
   }
 
   // 5. Hooks
+  const enableRecallHook = await askYesNo(rl, "  Enable vault recall on every message (UserPromptSubmit)?", true);
   const enablePrecompactHook = await askYesNo(rl, "  Enable PreCompact vault snapshot hook?", true);
 
   rl.close();
@@ -181,6 +182,7 @@ async function runInit() {
     server: serverUrl,
     apiKey,
     hooks: {
+      "vault-recall": { enabled: enableRecallHook },
       "precompact-snapshot": { enabled: enablePrecompactHook },
     },
   };
@@ -224,6 +226,20 @@ async function runInit() {
   // Claude Code hooks use matcher + hooks array format:
   // { hooks: [{ type: "command", command: "...", timeout: N }] }
   const hooks = {};
+  if (enableRecallHook) {
+    hooks["UserPromptSubmit"] = [
+      ...(claudeSettings.hooks?.["UserPromptSubmit"] || []),
+    ];
+    const recallCmd = "bash .fathom/scripts/fathom-recall.sh";
+    const hasFathomRecall = hooks["UserPromptSubmit"].some((entry) =>
+      entry.hooks?.some((h) => h.command === recallCmd)
+    );
+    if (!hasFathomRecall) {
+      hooks["UserPromptSubmit"].push({
+        hooks: [{ type: "command", command: recallCmd, timeout: 10000 }],
+      });
+    }
+  }
   if (enablePrecompactHook) {
     hooks["PreCompact"] = [
       ...(claudeSettings.hooks?.["PreCompact"] || []),
