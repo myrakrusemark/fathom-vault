@@ -166,7 +166,6 @@ async function runInit() {
   }
 
   // 5. Hooks
-  const enableContextHook = await askYesNo(rl, "  Enable SessionStart context injection hook?", true);
   const enablePrecompactHook = await askYesNo(rl, "  Enable PreCompact vault snapshot hook?", true);
 
   rl.close();
@@ -182,7 +181,6 @@ async function runInit() {
     server: serverUrl,
     apiKey,
     hooks: {
-      "context-inject": { enabled: enableContextHook },
       "precompact-snapshot": { enabled: enablePrecompactHook },
     },
   };
@@ -226,20 +224,6 @@ async function runInit() {
   // Claude Code hooks use matcher + hooks array format:
   // { hooks: [{ type: "command", command: "...", timeout: N }] }
   const hooks = {};
-  if (enableContextHook) {
-    hooks["UserPromptSubmit"] = [
-      ...(claudeSettings.hooks?.["UserPromptSubmit"] || []),
-    ];
-    const contextCmd = "bash .fathom/scripts/fathom-context.sh";
-    const hasFathomContext = hooks["UserPromptSubmit"].some((entry) =>
-      entry.hooks?.some((h) => h.command === contextCmd)
-    );
-    if (!hasFathomContext) {
-      hooks["UserPromptSubmit"].push({
-        hooks: [{ type: "command", command: contextCmd, timeout: 10000 }],
-      });
-    }
-  }
   if (enablePrecompactHook) {
     hooks["PreCompact"] = [
       ...(claudeSettings.hooks?.["PreCompact"] || []),
