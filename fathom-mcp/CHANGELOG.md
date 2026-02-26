@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 (2026-02-26)
+
+- **Agent type registration** — init wizard sends primary agent type when registering workspace with server
+- **Terminal bypass_permissions** — respects per-workspace session settings instead of always forcing bypass
+
 ## 0.2.0 (2026-02-26)
 
 Multi-agent support.
