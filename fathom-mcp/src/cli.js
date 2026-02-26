@@ -223,17 +223,20 @@ async function runInit() {
   const claudeSettingsPath = path.join(cwd, ".claude", "settings.local.json");
   const claudeSettings = readJsonFile(claudeSettingsPath) || {};
 
+  // Claude Code hooks use matcher + hooks array format:
+  // { hooks: [{ type: "command", command: "...", timeout: N }] }
   const hooks = {};
   if (enableContextHook) {
     hooks["UserPromptSubmit"] = [
       ...(claudeSettings.hooks?.["UserPromptSubmit"] || []),
     ];
-    // Avoid duplicate
     const contextCmd = "bash .fathom/scripts/fathom-context.sh";
-    if (!hooks["UserPromptSubmit"].some((h) => h.command === contextCmd)) {
+    const hasFathomContext = hooks["UserPromptSubmit"].some((entry) =>
+      entry.hooks?.some((h) => h.command === contextCmd)
+    );
+    if (!hasFathomContext) {
       hooks["UserPromptSubmit"].push({
-        type: "command",
-        command: contextCmd,
+        hooks: [{ type: "command", command: contextCmd, timeout: 10000 }],
       });
     }
   }
@@ -242,10 +245,12 @@ async function runInit() {
       ...(claudeSettings.hooks?.["PreCompact"] || []),
     ];
     const precompactCmd = "bash .fathom/scripts/fathom-precompact.sh";
-    if (!hooks["PreCompact"].some((h) => h.command === precompactCmd)) {
+    const hasFathomPrecompact = hooks["PreCompact"].some((entry) =>
+      entry.hooks?.some((h) => h.command === precompactCmd)
+    );
+    if (!hasFathomPrecompact) {
       hooks["PreCompact"].push({
-        type: "command",
-        command: precompactCmd,
+        hooks: [{ type: "command", command: precompactCmd, timeout: 30000 }],
       });
     }
   }
