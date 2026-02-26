@@ -196,15 +196,8 @@ def workspace_profiles():
         if routines:
             last_ping = routines[0].get("last_ping_at")
 
-        # Support both new agents array and legacy architecture string
-        agents = ws_entry.get("agents", [])
-        architecture = ws_entry.get("architecture", "")
-        if not agents and architecture:
-            agents = [architecture]
-
         profiles[ws_name] = {
-            "agents": agents,
-            "architecture": architecture,  # backward compat
+            "agents": ws_entry.get("agents", []),
             "running": running,
             "last_ping": last_ping,
             "vault": ws_entry.get("vault", "vault"),
@@ -227,7 +220,6 @@ def create_workspace():
     project_path = data.get("path", "").strip() or data.get("vault_path", "").strip()
     vault = data.get("vault", "").strip() or "vault"
     description = data.get("description", "").strip()
-    architecture = data.get("architecture", "").strip()
     agents = data.get("agents", [])
     ws_type = data.get("type", "local").strip()
 
@@ -240,7 +232,6 @@ def create_workspace():
         project_path,
         vault=vault,
         description=description,
-        architecture=architecture,
         agents=agents,
         type=ws_type,
     )

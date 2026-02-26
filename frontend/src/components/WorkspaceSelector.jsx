@@ -156,9 +156,9 @@ export default function WorkspaceSelector() {
                             human
                           </span>
                         )}
-                        {profile.architecture && (
+                        {profile.agents?.length > 0 && (
                           <span className="text-[9px] px-1 py-0 rounded bg-primary/10 text-primary opacity-60 font-medium leading-tight">
-                            {profile.architecture}
+                            {profile.agents.join(", ")}
                           </span>
                         )}
                       </div>

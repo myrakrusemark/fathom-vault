@@ -132,9 +132,9 @@ export default function WorkspaceSettingsModal({ workspaceName, profile, wsEntry
                 human
               </span>
             )}
-            {(profile?.agents?.length > 0 || profile?.architecture) && (
+            {profile?.agents?.length > 0 && (
               <span className="text-[10px] px-1.5 py-0 rounded bg-primary/10 text-primary opacity-70 font-medium">
-                {profile.agents?.length > 0 ? profile.agents.join(", ") : profile.architecture}
+                {profile.agents.join(", ")}
               </span>
             )}
           </div>

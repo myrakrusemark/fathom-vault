@@ -456,7 +456,7 @@ async function main() {
     client.registerWorkspace(config.workspace, config._projectDir, {
       vault: config._rawVault,
       description: config.description,
-      architecture: config.architecture,
+      agents: config.agents,
     }).catch(() => {});
   }
 

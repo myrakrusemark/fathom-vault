@@ -14,7 +14,7 @@ import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
 
-import { resolveConfig, writeConfig, findConfigFile } from "./config.js";
+import { resolveConfig, writeConfig } from "./config.js";
 import { createClient } from "./server-client.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -253,7 +253,8 @@ async function runInit() {
     const agent = AGENTS[key];
     const isDetected = detected.includes(key);
     const mark = isDetected ? "✓" : " ";
-    const hint = isDetected ? ` (${key === "windsurf" ? "~/.codeium/windsurf/ found" : `.${key === "claude-code" ? "claude" : key === "vscode" ? "vscode" : key}/ found`})` : "";
+    const markers = { "claude-code": ".claude/", "codex": ".codex/", "gemini": ".gemini/", "opencode": "opencode.json" };
+    const hint = isDetected ? ` (${markers[key] || key} found)` : "";
     console.log(`    ${mark} ${agent.name}${hint}`);
   }
 
@@ -472,7 +473,7 @@ async function runStatus() {
         } else {
           const agentLabel = profile.agents?.length > 0
             ? ` [${profile.agents.join(", ")}]`
-            : profile.architecture ? ` [${profile.architecture}]` : "";
+            : "";
           const runStatus = profile.running ? "running" : "stopped";
           console.log(`    ${name}: ${runStatus}${agentLabel}`);
         }

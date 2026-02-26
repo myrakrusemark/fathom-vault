@@ -38,17 +38,12 @@ _AGENT_COMMANDS = {
 }
 
 
-def _get_architecture(workspace: str = None) -> str:
-    """Read workspace architecture from global settings.
-
-    Supports both new 'agents' array and legacy 'architecture' string.
-    """
+def _get_agent(workspace: str = None) -> str:
+    """Read the primary agent for a workspace from global settings."""
     settings = load_global_settings()
     ws_entry = settings.get("workspaces", {}).get(workspace or "fathom", {})
     agents = ws_entry.get("agents", [])
-    if agents:
-        return agents[0]
-    return ws_entry.get("architecture", "claude-code") or "claude-code"
+    return agents[0] if agents else "claude-code"
 
 
 _lock = threading.Lock()
@@ -123,8 +118,8 @@ def ensure_running(workspace: str = None) -> bool:
         ws_settings = load_workspace_settings(workspace)
         bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
 
-        architecture = _get_architecture(workspace)
-        agent = _AGENT_COMMANDS.get(architecture, _AGENT_COMMANDS["claude-code"])
+        agent_id = _get_agent(workspace)
+        agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
 
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
@@ -137,7 +132,7 @@ def ensure_running(workspace: str = None) -> bool:
                 session,
                 *agent["command"],
             ]
-            if bypass and architecture == "claude-code":
+            if bypass and agent_id == "claude-code":
                 cmd += ["--permission-mode", "bypassPermissions"]
             subprocess.Popen(
                 cmd,
@@ -199,8 +194,8 @@ def restart(workspace: str = None) -> bool:
         ws_settings = load_workspace_settings(workspace)
         bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
 
-        architecture = _get_architecture(workspace)
-        agent = _AGENT_COMMANDS.get(architecture, _AGENT_COMMANDS["claude-code"])
+        agent_id = _get_agent(workspace)
+        agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
 
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
@@ -217,7 +212,7 @@ def restart(workspace: str = None) -> bool:
                 session,
                 *agent_cmd,
             ]
-            if bypass and architecture == "claude-code":
+            if bypass and agent_id == "claude-code":
                 cmd += ["--permission-mode", "bypassPermissions"]
             subprocess.Popen(
                 cmd,

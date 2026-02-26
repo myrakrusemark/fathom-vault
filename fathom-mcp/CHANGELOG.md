@@ -1,11 +1,6 @@
 # Changelog
 
-## 0.3.1 (2026-02-26)
-
-- **Agent type registration** — init wizard sends primary agent type when registering workspace with server
-- **Terminal bypass_permissions** — respects per-workspace session settings instead of always forcing bypass
-
-## 0.2.0 (2026-02-26)
+## 0.3.0 (2026-02-26)
 
 Multi-agent support.
 
@@ -14,9 +9,10 @@ Multi-agent support.
 - **Per-agent config writers** — `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `opencode.json`
 - **Agent instructions boilerplate** — `fathom-agents.md` template for memory discipline, vault conventions, cross-workspace communication
 - **Conditional hooks** — hook setup only for Claude Code (other agents don't support hooks)
-- **`agents` array** replaces legacy `architecture` string in `.fathom.json` — backward compatible
+- **`agents` array** in `.fathom.json` — workspace config stores which agents are configured
 - **Server-side agent dispatch** — persistent sessions launch the correct agent CLI per workspace
-- **Status command** — now shows configured agents per workspace
+- **Agent type registration** — init wizard sends primary agent type when registering workspace
+- **Status command** — shows configured agents per workspace
 
 ## 0.1.0 (2026-02-25)
 

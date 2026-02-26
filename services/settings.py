@@ -108,9 +108,8 @@ def new_routine_id() -> str:
 def _normalize_workspace_entry(entry) -> dict:
     """Normalize a workspace entry to dict format.
 
-    Handles both legacy string entries ("path") and rich dict entries
+    Handles both string entries ("path") and rich dict entries
     ({"path": ..., "vault": ..., "description": ..., "agents": [...]}).
-    Migrates legacy 'architecture' string to 'agents' array.
     """
     if isinstance(entry, str):
         return {
@@ -118,21 +117,14 @@ def _normalize_workspace_entry(entry) -> dict:
             "vault": "vault",
             "description": "",
             "agents": [],
-            "architecture": "",
             "type": "local",
         }
     if isinstance(entry, dict):
-        agents = entry.get("agents", [])
-        architecture = entry.get("architecture", "")
-        # Backward compat: migrate architecture to agents if agents empty
-        if not agents and architecture:
-            agents = [architecture]
         return {
             "path": entry.get("path", ""),
             "vault": entry.get("vault", "vault"),
             "description": entry.get("description", ""),
-            "agents": agents,
-            "architecture": architecture,
+            "agents": entry.get("agents", []),
             "type": entry.get("type", "local"),
         }
     return {
@@ -140,7 +132,6 @@ def _normalize_workspace_entry(entry) -> dict:
         "vault": "vault",
         "description": "",
         "agents": [],
-        "architecture": "",
         "type": "local",
     }
 
@@ -380,7 +371,6 @@ def add_workspace(
     project_path: str,
     vault: str = "vault",
     description: str = "",
-    architecture: str = "",
     agents: list | None = None,
     type: str = "local",
 ) -> tuple[bool, str]:
@@ -419,8 +409,6 @@ def add_workspace(
             existing["description"] = _sanitize_description(description)
         if agents_list:
             existing["agents"] = agents_list
-        if architecture:
-            existing["architecture"] = architecture
         if type:
             existing["type"] = type
         gs["workspaces"][name] = existing
@@ -430,7 +418,6 @@ def add_workspace(
             "vault": vault_subdir,
             "description": _sanitize_description(description),
             "agents": agents_list,
-            "architecture": architecture,
             "type": type,
         }
 

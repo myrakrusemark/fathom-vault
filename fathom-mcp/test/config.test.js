@@ -156,7 +156,7 @@ describe("resolveConfig", () => {
     fs.unlinkSync(path.join(tmpDir, ".fathom.json"));
   });
 
-  it("migrates legacy architecture string to agents array", () => {
+  it("reads agents array from config", () => {
     delete process.env.FATHOM_SERVER_URL;
     delete process.env.FATHOM_API_KEY;
     delete process.env.FATHOM_WORKSPACE;
@@ -164,27 +164,7 @@ describe("resolveConfig", () => {
 
     fs.writeFileSync(
       path.join(tmpDir, ".fathom.json"),
-      JSON.stringify({ architecture: "claude-code" }),
-    );
-
-    const config = resolveConfig(tmpDir);
-    assert.deepEqual(config.agents, ["claude-code"]);
-
-    fs.unlinkSync(path.join(tmpDir, ".fathom.json"));
-  });
-
-  it("prefers agents array over legacy architecture string", () => {
-    delete process.env.FATHOM_SERVER_URL;
-    delete process.env.FATHOM_API_KEY;
-    delete process.env.FATHOM_WORKSPACE;
-    delete process.env.FATHOM_VAULT_DIR;
-
-    fs.writeFileSync(
-      path.join(tmpDir, ".fathom.json"),
-      JSON.stringify({
-        agents: ["codex", "gemini"],
-        architecture: "claude-code",
-      }),
+      JSON.stringify({ agents: ["codex", "gemini"] }),
     );
 
     const config = resolveConfig(tmpDir);
@@ -227,7 +207,6 @@ describe("writeConfig", () => {
 
     const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     assert.deepEqual(parsed.agents, ["claude-code", "codex", "gemini"]);
-    assert.equal(parsed.architecture, undefined);
   });
 
   it("writes empty agents array when none specified", () => {

@@ -100,10 +100,6 @@ npx fathom-mcp status        # Check server connection + workspace status
 2. `.fathom.json` (walked up from cwd to filesystem root)
 3. Built-in defaults
 
-### Backward compatibility
-
-The `agents` array replaces the legacy `architecture` string field. Old configs with `architecture: "claude-code"` are automatically migrated to `agents: ["claude-code"]` at read time.
-
 ## Hooks (Claude Code only)
 
 Hooks are only available in Claude Code and are configured in `.claude/settings.local.json`.

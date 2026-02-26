@@ -68,11 +68,8 @@ export function resolveConfig(startDir = process.cwd()) {
     if (config.server) result.server = config.server;
     if (config.apiKey) result.apiKey = config.apiKey;
     if (config.description) result.description = config.description;
-    // Backward compat: migrate legacy `architecture` string to `agents` array
     if (config.agents && Array.isArray(config.agents)) {
       result.agents = config.agents;
-    } else if (config.architecture) {
-      result.agents = [config.architecture];
     }
     if (config.hooks) {
       result.hooks = { ...result.hooks, ...config.hooks };
