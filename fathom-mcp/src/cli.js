@@ -258,10 +258,11 @@ async function runInit() {
   hifathom.com  ·  fathom@myrakrusemark.com
 `);
 
-  // Check for existing config
-  const existing = findConfigFile(cwd);
-  if (existing) {
-    console.log(`  Found existing config at: ${existing.path}`);
+  // Check for existing config in *this* directory only (don't walk up —
+  // a parent's .fathom.json belongs to a different workspace)
+  const localConfigPath = path.join(cwd, ".fathom.json");
+  if (fs.existsSync(localConfigPath)) {
+    console.log(`  Found existing config at: ${localConfigPath}`);
     const proceed = await askYesNo(rl, "  Overwrite?", false);
     if (!proceed) {
       console.log("  Aborted.");
