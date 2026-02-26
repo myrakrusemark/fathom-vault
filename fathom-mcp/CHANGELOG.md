@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 (2026-02-26)
+
+- **Breaking:** removed `architecture` field everywhere — `agents` array is the only field
+- Cleaned up all backward compatibility shims across config, server, API, and frontend
+- Renamed `_get_architecture` → `_get_agent` in persistent session manager
+
 ## 0.3.0 (2026-02-26)
 
 Multi-agent support.
