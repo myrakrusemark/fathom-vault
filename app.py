@@ -8,6 +8,7 @@ from config import FRONTEND_DIR, PORT
 app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
 
 from routes.activation import bp as activation_bp  # noqa: E402
+from routes.room import bp as room_bp  # noqa: E402
 from routes.settings import bp as settings_bp  # noqa: E402
 from routes.terminal import sock as terminal_sock  # noqa: E402
 from routes.vault import bp as vault_bp  # noqa: E402
@@ -16,6 +17,7 @@ terminal_sock.init_app(app)
 app.register_blueprint(activation_bp)
 app.register_blueprint(vault_bp)
 app.register_blueprint(settings_bp)
+app.register_blueprint(room_bp)
 
 # Bootstrap all workspaces on startup
 import threading as _threading  # noqa: E402

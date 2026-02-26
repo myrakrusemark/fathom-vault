@@ -7,6 +7,7 @@ import SearchPanel from './components/SearchPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 import TerminalPanel from './components/TerminalPanel.jsx'
 import ActivationView from './components/ActivationView.jsx'
+import CommunicationView from './components/CommunicationView.jsx'
 import WorkspaceSelector from './components/WorkspaceSelector.jsx'
 import ViewTabs from './components/ViewTabs.jsx'
 import { WorkspaceProvider, useWorkspace, wsUrl } from './WorkspaceContext.jsx'
@@ -48,6 +49,7 @@ function AppInner() {
   useEffect(() => {
     if (currentView === 'vault') setTheme('fathom-v')
     else if (currentView === 'activation') setTheme('fathom-a')
+    else if (currentView === 'communication') setTheme('fathom-c')
   }, [currentView])
 
   // Load activity settings on mount
@@ -156,7 +158,7 @@ function AppInner() {
       <div className="fixed top-0 left-0 right-0 z-10 h-10 bg-base-200 border-b border-base-300
         flex items-center px-4 gap-3">
         <ViewTabs currentView={currentView} setCurrentView={setCurrentView} />
-        {currentView !== 'activation' && (
+        {currentView === 'vault' && (
           <>
             {selectedFolder !== null && (
               <>
@@ -249,6 +251,8 @@ function AppInner() {
       <div className="relative flex flex-1 pt-10 overflow-hidden">
         {currentView === 'activation' ? (
           <ActivationView />
+        ) : currentView === 'communication' ? (
+          <CommunicationView />
         ) : (
           <>
             {/* Left panel: folder tree */}

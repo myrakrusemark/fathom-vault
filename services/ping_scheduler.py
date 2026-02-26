@@ -197,13 +197,35 @@ class PingScheduler:
             }
 
     def status_for_workspace(self, workspace: str | None = None) -> dict:
-        """Return status filtered to a single workspace."""
+        """Return status filtered to a single workspace.
+
+        Merges content fields from disk (source of truth for config) with
+        runtime fields from memory (source of truth for timing). This ensures
+        direct file edits are always reflected without needing a server restart.
+        """
+        # Read fresh config from disk
+        disk_routines = {}
+        if workspace:
+            try:
+                ws_settings = load_workspace_settings(workspace)
+                for r in ws_settings.get("ping", {}).get("routines", []):
+                    disk_routines[r["id"]] = r
+            except (ValueError, OSError):
+                pass
+
         with self._lock:
-            routines = [
-                self._routine_dict(rs)
-                for rs in self._routines.values()
-                if workspace is None or rs.workspace == workspace
-            ]
+            routines = []
+            for rs in self._routines.values():
+                if workspace is not None and rs.workspace != workspace:
+                    continue
+                d = self._routine_dict(rs)
+                # Overlay disk config if available (name, interval, context_sources)
+                disk = disk_routines.get(rs.id)
+                if disk:
+                    d["name"] = disk.get("name", d["name"])
+                    d["interval_minutes"] = disk.get("interval_minutes", d["interval_minutes"])
+                    d["context_sources"] = disk.get("context_sources", d["context_sources"])
+                routines.append(d)
             return {"routines": routines}
 
     @property
@@ -249,7 +271,16 @@ class PingScheduler:
         rs.timer.start()
 
     def _build_prompt(self, rs: RoutineState) -> str:
+        # Read fresh context_sources from disk so file edits take effect
         src = rs.context_sources
+        try:
+            ws_settings = load_workspace_settings(rs.workspace)
+            for r in ws_settings.get("ping", {}).get("routines", []):
+                if r["id"] == rs.id:
+                    src = r.get("context_sources", src)
+                    break
+        except (ValueError, OSError):
+            pass
         parts = []
 
         # Header line

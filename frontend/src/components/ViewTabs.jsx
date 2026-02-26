@@ -3,7 +3,7 @@ export default function ViewTabs({ currentView, setCurrentView }) {
     { id: 'memento', label: 'Memento', color: '#06B6D4', external: 'https://hifathom.com/dashboard/' },
     { id: 'vault', label: 'Vault', color: '#8B5CF6' },
     { id: 'activation', label: 'Activation', color: '#F4A261' },
-    { id: 'communication', label: 'Comms', color: '#4ADE80', disabled: true },
+    { id: 'communication', label: 'Comms', color: '#4ADE80' },
   ]
 
   return (

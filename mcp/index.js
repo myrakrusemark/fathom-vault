@@ -625,21 +625,22 @@ async function deliverMessage(workspace, formattedMessage, sessionName, projectP
   }
 }
 
-function handleSend({ workspace, message, from }) {
-  if (!workspace) return { error: "workspace is required" };
-  if (!message) return { error: "message is required" };
-
+/**
+ * Shared injection primitive — resolves a workspace, checks if its session is
+ * running, and either injects immediately or queues background delivery.
+ * @param {string} workspace  - target workspace name
+ * @param {string} formattedMessage - fully formatted message string (ready to paste)
+ * @returns {{ ok: boolean, delivered?: boolean, queued?: boolean, workspace: string } | { error: string, workspace: string }}
+ */
+function injectToWorkspace(workspace, formattedMessage) {
   const settings = loadSettings();
   const workspaces = settings.workspaces || {};
   const projectPath = workspaces[workspace];
 
   if (!projectPath) {
-    const available = Object.keys(workspaces).join(", ") || "(none)";
-    return { error: `Unknown workspace: "${workspace}". Available: ${available}` };
+    return { error: `Unknown workspace: "${workspace}"`, workspace };
   }
 
-  const sender = from || "unknown";
-  const formattedMessage = `Message from workspace (${sender}): ${message}`;
   const sessionName = `${workspace}_fathom-session`;
   const paneFile = path.join(os.homedir(), ".config", "fathom", `${workspace}-pane-id`);
 
@@ -653,7 +654,6 @@ function handleSend({ workspace, message, from }) {
   } catch { /* not running */ }
 
   if (running) {
-    // Session is live — inject immediately
     let target = sessionName;
     try {
       const savedPaneId = fs.readFileSync(paneFile, "utf-8").trim();
@@ -662,27 +662,30 @@ function handleSend({ workspace, message, from }) {
 
     try {
       injectMessage(target, formattedMessage, workspace);
-      return {
-        ok: true,
-        delivered: true,
-        workspace,
-        session: sessionName,
-        message_length: message.length,
-      };
+      return { ok: true, delivered: true, workspace };
     } catch (e) {
-      return { error: `Failed to inject message: ${e.message}` };
+      return { error: `Failed to inject message: ${e.message}`, workspace };
     }
   }
 
   // Session not running — fire-and-forget background delivery
   deliverMessage(workspace, formattedMessage, sessionName, projectPath, paneFile);
+  return { ok: true, delivered: false, queued: true, workspace };
+}
+
+function handleSend({ workspace, message, from }) {
+  if (!workspace) return { error: "workspace is required" };
+  if (!message) return { error: "message is required" };
+
+  const sender = from || "unknown";
+  const formattedMessage = `Message from workspace (${sender}): ${message}`;
+
+  const result = injectToWorkspace(workspace, formattedMessage);
+  if (result.error) return result;
 
   return {
-    ok: true,
-    delivered: false,
-    queued: true,
-    workspace,
-    session: sessionName,
+    ...result,
+    session: `${workspace}_fathom-session`,
     message_length: message.length,
   };
 }
@@ -705,6 +708,12 @@ function getRoomDb() {
     CREATE INDEX IF NOT EXISTS idx_room_messages_room_ts
       ON room_messages(room, timestamp)
   `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS room_metadata (
+      room        TEXT PRIMARY KEY,
+      description TEXT NOT NULL DEFAULT ''
+    )
+  `);
   return db;
 }
 
@@ -716,21 +725,87 @@ function formatTimeAgo(timestampSec) {
   return `${Math.floor(diffSec / 86400)}d ago`;
 }
 
+/**
+ * Extract @workspace mentions from a message. Deduplicates via Set.
+ * @param {string} message
+ * @returns {string[]} unique mention tokens (lowercase)
+ */
+function parseMentions(message) {
+  const matches = message.match(/@([\w][\w-]*)/g);
+  if (!matches) return [];
+  return [...new Set(matches.map(m => m.slice(1).toLowerCase()))];
+}
+
+/**
+ * Expand mention tokens into target workspace names.
+ * - @all expands to every configured workspace except sender.
+ * - Self-mentions (sender mentioning themselves) are filtered out.
+ * - Unknown workspace names are silently ignored.
+ * @param {string[]} tokens - from parseMentions
+ * @param {string} sender - who posted, so we can filter self-mentions
+ * @returns {string[]} validated workspace names to notify
+ */
+function resolveMentions(tokens, sender) {
+  const settings = loadSettings();
+  const allWorkspaces = Object.keys(settings.workspaces || {});
+  const senderLower = sender.toLowerCase();
+
+  let targets = new Set();
+  for (const token of tokens) {
+    if (token === "all") {
+      for (const ws of allWorkspaces) targets.add(ws);
+    } else if (allWorkspaces.some(ws => ws.toLowerCase() === token)) {
+      // Find the canonical-case workspace name
+      targets.add(allWorkspaces.find(ws => ws.toLowerCase() === token));
+    }
+    // unknown mentions silently ignored
+  }
+
+  // Filter out self-mentions
+  targets.delete(allWorkspaces.find(ws => ws.toLowerCase() === senderLower) || sender);
+
+  return [...targets];
+}
+
 function handleRoomPost({ room, message, sender }) {
   if (!room) return { error: "room is required" };
   if (!message) return { error: "message is required" };
   const who = sender || "unknown";
   const timestamp = Date.now() / 1000;
 
+  // Phase 1: Store in room (unchanged)
   const db = getRoomDb();
   try {
     db.prepare(
       "INSERT INTO room_messages (room, sender, message, timestamp) VALUES (?, ?, ?, ?)"
     ).run(room, who, message, timestamp);
-    return { ok: true, room, sender: who, timestamp, message_length: message.length };
   } finally {
     db.close();
   }
+
+  const result = { ok: true, room, sender: who, timestamp, message_length: message.length };
+
+  // Phase 2: Parse mentions and inject into targeted workspaces
+  const tokens = parseMentions(message);
+  const targets = resolveMentions(tokens, who);
+
+  if (targets.length > 0) {
+    const notified = targets.map(ws => {
+      const formatted = `Room message from ${who} in #${room} (@${ws}): ${message}\n(Read the room with fathom_room_read before replying — this is one message without context.)`;
+      const injection = injectToWorkspace(ws, formatted);
+      if (injection.error) {
+        return { workspace: ws, delivered: false, error: injection.error };
+      }
+      return { workspace: ws, delivered: !!injection.delivered, queued: !!injection.queued };
+    });
+
+    result.mentions = {
+      parsed: tokens,
+      notified,
+    };
+  }
+
+  return result;
 }
 
 function handleRoomRead({ room, hours }) {
@@ -767,7 +842,9 @@ function handleRoomList() {
         COUNT(*) as message_count,
         MAX(timestamp) as last_activity,
         (SELECT sender FROM room_messages r2
-         WHERE r2.room = r1.room ORDER BY timestamp DESC LIMIT 1) as last_sender
+         WHERE r2.room = r1.room ORDER BY timestamp DESC LIMIT 1) as last_sender,
+        COALESCE((SELECT description FROM room_metadata m
+         WHERE m.room = r1.room), '') as description
       FROM room_messages r1
       GROUP BY room
       ORDER BY last_activity DESC
@@ -778,9 +855,26 @@ function handleRoomList() {
       message_count: r.message_count,
       last_activity: r.last_activity,
       last_sender: r.last_sender,
+      description: r.description,
     }));
 
     return { rooms, count: rooms.length };
+  } finally {
+    db.close();
+  }
+}
+
+function handleRoomDescribe({ room, description }) {
+  if (!room) return { error: "room is required" };
+  const desc = (description || "").trim();
+
+  const db = getRoomDb();
+  try {
+    db.prepare(
+      "INSERT INTO room_metadata (room, description) VALUES (?, ?) " +
+      "ON CONFLICT(room) DO UPDATE SET description = excluded.description"
+    ).run(room, desc);
+    return { ok: true, room, description: desc };
   } finally {
     db.close();
   }
@@ -1104,7 +1198,9 @@ const tools = [
     description:
       "Post a message to a shared room. Rooms are created implicitly on first post. " +
       "Use this for ambient, multilateral communication — unlike fathom_send (point-to-point DM), " +
-      "room messages are visible to all participants. Responding is optional — use `<...>` for active silence.",
+      "room messages are visible to all participants. Responding is optional — use `<...>` for active silence. " +
+      "Supports @workspace mentions (e.g. @fathom, @navier-stokes) — mentioned workspaces get the message " +
+      "injected into their Claude session, same mechanism as fathom_send. Use @all to notify every workspace except sender.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1114,7 +1210,7 @@ const tools = [
         },
         message: {
           type: "string",
-          description: "Message to post",
+          description: "Message to post. Use @workspace to mention and notify specific workspaces (e.g. '@fathom check this'), or @all for everyone.",
         },
         sender: {
           type: "string",
@@ -1147,12 +1243,32 @@ const tools = [
   {
     name: "fathom_room_list",
     description:
-      "List all rooms with activity summary — message count, last activity time, and last sender. " +
+      "List all rooms with activity summary — message count, last activity time, last sender, and description. " +
       "Use to discover active rooms.",
     inputSchema: {
       type: "object",
       properties: {},
       required: [],
+    },
+  },
+  {
+    name: "fathom_room_describe",
+    description:
+      "Set or update the description/topic for a room. Descriptions help participants " +
+      "understand what a room is for. Pass an empty string to clear.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        room: {
+          type: "string",
+          description: "Room name to set description for",
+        },
+        description: {
+          type: "string",
+          description: "Room description/topic — what this room is about",
+        },
+      },
+      required: ["room", "description"],
     },
   },
   {
@@ -1267,6 +1383,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       break;
     case "fathom_room_list":
       result = handleRoomList();
+      break;
+    case "fathom_room_describe":
+      result = handleRoomDescribe(args);
       break;
     case "fathom_vault_search":
       result = handleSearch("search", args);

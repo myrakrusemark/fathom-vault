@@ -37,6 +37,21 @@ def _work_dir(workspace: str = None) -> str:
     return ws_path or "/data/Dropbox/Work"
 
 
+def _save_pane_id(workspace: str = None) -> None:
+    """Query tmux for the session's pane ID and write it to the pane-id file."""
+    session = _session_name(workspace)
+    result = subprocess.run(
+        ["tmux", "list-panes", "-t", session, "-F", "#{pane_id}"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        pane_id = result.stdout.strip().split("\n")[0]
+        pane_file = _pane_id_file(workspace)
+        pane_file.parent.mkdir(parents=True, exist_ok=True)
+        pane_file.write_text(pane_id)
+
+
 def _main_pane(workspace: str = None) -> str:
     """Return the tmux target for a workspace's main pane.
 
@@ -90,7 +105,10 @@ def ensure_running(workspace: str = None) -> bool:
                 cwd=cwd,
             )
             time.sleep(2)
-            return is_running(workspace)
+            if is_running(workspace):
+                _save_pane_id(workspace)
+                return True
+            return False
         except Exception:
             return False
 
@@ -161,16 +179,7 @@ def restart(workspace: str = None) -> bool:
             time.sleep(2)
 
             if is_running(workspace):
-                result = subprocess.run(
-                    ["tmux", "list-panes", "-t", session, "-F", "#{pane_id}"],
-                    capture_output=True,
-                    text=True,
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    pane_id = result.stdout.strip().split("\n")[0]
-                    pane_file = _pane_id_file(workspace)
-                    pane_file.parent.mkdir(parents=True, exist_ok=True)
-                    pane_file.write_text(pane_id)
+                _save_pane_id(workspace)
                 return True
             return False
         except Exception:
