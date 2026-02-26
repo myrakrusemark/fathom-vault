@@ -410,6 +410,7 @@ async function runInit() {
         vault,
         description,
         agents: selectedAgents,
+        type: selectedAgents[0] || "local",
       });
       if (regResult.ok) {
         console.log(`  ✓ Registered workspace "${workspace}" with server`);
