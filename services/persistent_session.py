@@ -1,6 +1,6 @@
 """Persistent workspace session manager.
 
-Manages workspace-scoped tmux sessions running Claude Code.
+Manages workspace-scoped tmux sessions running AI agents (Claude Code, Codex, Gemini, etc.).
 Each workspace gets its own session: {workspace}_fathom-session.
 The terminal panel attaches to it; the ping scheduler injects into it.
 """
@@ -12,9 +12,40 @@ import time
 from pathlib import Path
 
 from config import get_workspace_path
+from services.settings import load_global_settings, load_workspace_settings
 
 _CLAUDE = "/home/myra/.local/bin/claude"
 _FATHOM_CONFIG_DIR = Path.home() / ".config" / "fathom"
+
+# Agent CLI commands — map agent identifier to executable and flags
+_AGENT_COMMANDS = {
+    "claude-code": {
+        "command": [_CLAUDE, "--model", "opus"],
+        "restart_flag": "--continue",
+    },
+    "codex": {
+        "command": ["codex"],
+        "restart_flag": None,
+    },
+    "gemini": {
+        "command": ["gemini"],
+        "restart_flag": None,
+    },
+}
+
+
+def _get_architecture(workspace: str = None) -> str:
+    """Read workspace architecture from global settings.
+
+    Supports both new 'agents' array and legacy 'architecture' string.
+    """
+    settings = load_global_settings()
+    ws_entry = settings.get("workspaces", {}).get(workspace or "fathom", {})
+    agents = ws_entry.get("agents", [])
+    if agents:
+        return agents[0]
+    return ws_entry.get("architecture", "claude-code") or "claude-code"
+
 
 _lock = threading.Lock()
 
@@ -85,22 +116,27 @@ def ensure_running(workspace: str = None) -> bool:
             return True
         session = _session_name(workspace)
         cwd = _work_dir(workspace)
+        ws_settings = load_workspace_settings(workspace)
+        bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
+
+        architecture = _get_architecture(workspace)
+        agent = _AGENT_COMMANDS.get(architecture, _AGENT_COMMANDS["claude-code"])
+
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
         try:
+            cmd = [
+                "tmux",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                *agent["command"],
+            ]
+            if bypass and architecture == "claude-code":
+                cmd += ["--permission-mode", "bypassPermissions"]
             subprocess.Popen(
-                [
-                    "tmux",
-                    "new-session",
-                    "-d",
-                    "-s",
-                    session,
-                    _CLAUDE,
-                    "--model",
-                    "opus",
-                    "--permission-mode",
-                    "bypassPermissions",
-                ],
+                cmd,
                 env=env,
                 cwd=cwd,
             )
@@ -144,7 +180,7 @@ def inject(text: str, workspace: str = None) -> bool:
 
 
 def restart(workspace: str = None) -> bool:
-    """Kill and restart a workspace session with --continue."""
+    """Kill and restart a workspace session (with --continue for Claude Code)."""
     with _lock:
         session = _session_name(workspace)
         cwd = _work_dir(workspace)
@@ -156,23 +192,31 @@ def restart(workspace: str = None) -> bool:
             )
             time.sleep(1)
 
+        ws_settings = load_workspace_settings(workspace)
+        bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
+
+        architecture = _get_architecture(workspace)
+        agent = _AGENT_COMMANDS.get(architecture, _AGENT_COMMANDS["claude-code"])
+
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
         try:
+            # Build agent command with restart flag if supported
+            agent_cmd = list(agent["command"])
+            if agent.get("restart_flag"):
+                agent_cmd.insert(1, agent["restart_flag"])
+            cmd = [
+                "tmux",
+                "new-session",
+                "-d",
+                "-s",
+                session,
+                *agent_cmd,
+            ]
+            if bypass and architecture == "claude-code":
+                cmd += ["--permission-mode", "bypassPermissions"]
             subprocess.Popen(
-                [
-                    "tmux",
-                    "new-session",
-                    "-d",
-                    "-s",
-                    session,
-                    _CLAUDE,
-                    "--continue",
-                    "--model",
-                    "opus",
-                    "--permission-mode",
-                    "bypassPermissions",
-                ],
+                cmd,
                 env=env,
                 cwd=cwd,
             )

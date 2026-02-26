@@ -65,6 +65,7 @@ export default function WorkspaceSettingsModal({ workspaceName, profile, wsEntry
           background_index: updated.background_index,
           mcp: updated.mcp,
           activity: updated.activity,
+          session: updated.session,
           workspaces: updated.workspaces,
           default_workspace: updated.default_workspace,
         }),
@@ -131,9 +132,9 @@ export default function WorkspaceSettingsModal({ workspaceName, profile, wsEntry
                 human
               </span>
             )}
-            {profile?.architecture && (
+            {(profile?.agents?.length > 0 || profile?.architecture) && (
               <span className="text-[10px] px-1.5 py-0 rounded bg-primary/10 text-primary opacity-70 font-medium">
-                {profile.architecture}
+                {profile.agents?.length > 0 ? profile.agents.join(", ") : profile.architecture}
               </span>
             )}
           </div>
@@ -337,6 +338,31 @@ export default function WorkspaceSettingsModal({ workspaceName, profile, wsEntry
                     Hybrid: BM25 + vectors + reranking. Slower but more accurate.
                   </p>
                 </div>
+              </section>
+
+              <div className="divider my-1"></div>
+
+              {/* Session section */}
+              <section>
+                <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
+                  Session
+                </h3>
+
+                <label className="flex items-center justify-between gap-3 cursor-pointer mb-1">
+                  <span className="text-sm text-base-content">Bypass permissions</span>
+                  <input
+                    type="checkbox"
+                    className="toggle toggle-warning toggle-sm"
+                    checked={settings?.session?.bypass_permissions ?? false}
+                    onChange={e => saveSettings({
+                      ...settings,
+                      session: { ...settings?.session, bypass_permissions: e.target.checked },
+                    })}
+                  />
+                </label>
+                <p className="text-xs text-neutral-content opacity-50 mb-3">
+                  Auto-approve all tool calls. Off = Claude asks before edits and commands.
+                </p>
               </section>
 
               <div className="divider my-1"></div>

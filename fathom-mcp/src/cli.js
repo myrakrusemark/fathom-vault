@@ -10,6 +10,7 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
@@ -105,6 +106,143 @@ function copyScripts(targetDir) {
   }
 }
 
+// --- Agent registry ----------------------------------------------------------
+
+const MCP_SERVER_ENTRY = {
+  command: "npx",
+  args: ["-y", "fathom-mcp"],
+};
+
+/**
+ * Per-agent config writers. Each writes the appropriate MCP config file
+ * for that agent, merging with existing config if present.
+ */
+
+function writeMcpJson(cwd) {
+  const filePath = path.join(cwd, ".mcp.json");
+  const existing = readJsonFile(filePath) || {};
+  deepMerge(existing, { mcpServers: { "fathom-vault": MCP_SERVER_ENTRY } });
+  writeJsonFile(filePath, existing);
+  return ".mcp.json";
+}
+
+function writeCodexToml(cwd) {
+  const dir = path.join(cwd, ".codex");
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, "config.toml");
+
+  let content = "";
+  try {
+    content = fs.readFileSync(filePath, "utf-8");
+  } catch { /* file doesn't exist */ }
+
+  // Check if fathom-vault section already exists
+  if (/\[mcp_servers\.fathom-vault\]/.test(content)) {
+    return ".codex/config.toml (already configured)";
+  }
+
+  const section = `\n[mcp_servers.fathom-vault]\ncommand = "npx"\nargs = ["-y", "fathom-mcp"]\n`;
+  const separator = content && !content.endsWith("\n") ? "\n" : "";
+  fs.writeFileSync(filePath, content + separator + section);
+  return ".codex/config.toml";
+}
+
+function writeGeminiJson(cwd) {
+  const dir = path.join(cwd, ".gemini");
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, "settings.json");
+  const existing = readJsonFile(filePath) || {};
+  deepMerge(existing, { mcpServers: { "fathom-vault": MCP_SERVER_ENTRY } });
+  writeJsonFile(filePath, existing);
+  return ".gemini/settings.json";
+}
+
+function writeCursorJson(cwd) {
+  const dir = path.join(cwd, ".cursor");
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, "mcp.json");
+  const existing = readJsonFile(filePath) || {};
+  deepMerge(existing, { mcpServers: { "fathom-vault": MCP_SERVER_ENTRY } });
+  writeJsonFile(filePath, existing);
+  return ".cursor/mcp.json";
+}
+
+function writeVscodeJson(cwd) {
+  const dir = path.join(cwd, ".vscode");
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, "mcp.json");
+  const existing = readJsonFile(filePath) || {};
+  deepMerge(existing, {
+    servers: {
+      "fathom-vault": {
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "fathom-mcp"],
+      },
+    },
+  });
+  writeJsonFile(filePath, existing);
+  return ".vscode/mcp.json";
+}
+
+function writeWindsurfJson(_cwd) {
+  const dir = path.join(os.homedir(), ".codeium", "windsurf");
+  fs.mkdirSync(dir, { recursive: true });
+  const filePath = path.join(dir, "mcp_config.json");
+  const existing = readJsonFile(filePath) || {};
+  deepMerge(existing, { mcpServers: { "fathom-vault": MCP_SERVER_ENTRY } });
+  writeJsonFile(filePath, existing);
+  return "~/.codeium/windsurf/mcp_config.json";
+}
+
+const AGENTS = {
+  "claude-code": {
+    name: "Claude Code",
+    detect: (cwd) => fs.existsSync(path.join(cwd, ".claude")),
+    configWriter: writeMcpJson,
+    hasHooks: true,
+    nextSteps: 'Add to CLAUDE.md: `ToolSearch query="+fathom" max_results=20`',
+  },
+  "codex": {
+    name: "OpenAI Codex",
+    detect: (cwd) => fs.existsSync(path.join(cwd, ".codex")),
+    configWriter: writeCodexToml,
+    hasHooks: false,
+    nextSteps: "Run `codex` in this directory — fathom tools load automatically.",
+  },
+  "gemini": {
+    name: "Gemini CLI",
+    detect: (cwd) => fs.existsSync(path.join(cwd, ".gemini")),
+    configWriter: writeGeminiJson,
+    hasHooks: false,
+    nextSteps: "Run `gemini` in this directory — fathom tools load automatically.",
+  },
+  "cursor": {
+    name: "Cursor",
+    detect: (cwd) => fs.existsSync(path.join(cwd, ".cursor")),
+    configWriter: writeCursorJson,
+    hasHooks: false,
+    nextSteps: "Restart Cursor — fathom tools appear in MCP settings.",
+  },
+  "vscode": {
+    name: "VS Code Copilot",
+    detect: (cwd) => fs.existsSync(path.join(cwd, ".vscode")),
+    configWriter: writeVscodeJson,
+    hasHooks: false,
+    nextSteps: "Reload VS Code — fathom tools appear in Copilot.",
+  },
+  "windsurf": {
+    name: "Windsurf",
+    detect: () => fs.existsSync(path.join(os.homedir(), ".codeium", "windsurf")),
+    configWriter: writeWindsurfJson,
+    hasHooks: false,
+    nextSteps: "Restart Windsurf — fathom tools appear in Cascade.",
+  },
+};
+
+// Exported for testing
+export { AGENTS, writeMcpJson, writeCodexToml, writeGeminiJson, writeCursorJson, writeVscodeJson, writeWindsurfJson };
+
 // --- Init wizard -------------------------------------------------------------
 
 async function runInit() {
@@ -139,35 +277,60 @@ async function runInit() {
   // 2. Vault subdirectory
   const vault = await ask(rl, "  Vault subdirectory", "vault");
 
-  // 3. Server URL
-  const serverUrl = await ask(rl, "  Fathom server URL", "http://localhost:4243");
+  // 3. Description (optional)
+  const description = await ask(rl, "  Workspace description (optional)", "");
 
-  // 4. API key
-  let apiKey = "";
-  const tryFetch = await askYesNo(rl, "  Fetch API key from server?", true);
-  if (tryFetch) {
-    console.log("  Connecting to server...");
-    const tmpClient = createClient({ server: serverUrl, apiKey: "", workspace });
-    const isUp = await tmpClient.healthCheck();
-    if (isUp) {
-      const keyResp = await tmpClient.getApiKey();
-      if (keyResp.api_key) {
-        apiKey = keyResp.api_key;
-        console.log(`  Got API key: ${apiKey.slice(0, 7)}...${apiKey.slice(-4)}`);
-      } else {
-        console.log("  Could not fetch key (auth may not be configured yet).");
-      }
-    } else {
-      console.log("  Server not reachable. You can add the API key to .fathom.json later.");
-    }
-  }
-  if (!apiKey) {
-    apiKey = await ask(rl, "  API key (or leave blank)", "");
+  // 4. Agent selection — auto-detect and let user choose
+  const agentKeys = Object.keys(AGENTS);
+  const detected = agentKeys.filter((key) => AGENTS[key].detect(cwd));
+
+  console.log("\n  Detected agents:");
+  for (const key of agentKeys) {
+    const agent = AGENTS[key];
+    const isDetected = detected.includes(key);
+    const mark = isDetected ? "✓" : " ";
+    const hint = isDetected ? ` (${key === "windsurf" ? "~/.codeium/windsurf/ found" : `.${key === "claude-code" ? "claude" : key === "vscode" ? "vscode" : key}/ found`})` : "";
+    console.log(`    ${mark} ${agent.name}${hint}`);
   }
 
-  // 5. Hooks
-  const enableRecallHook = await askYesNo(rl, "  Enable vault recall on every message (UserPromptSubmit)?", true);
-  const enablePrecompactHook = await askYesNo(rl, "  Enable PreCompact vault snapshot hook?", true);
+  console.log("\n  Configure for which agents?");
+  agentKeys.forEach((key, i) => {
+    const agent = AGENTS[key];
+    const mark = detected.includes(key) ? " ✓" : "";
+    console.log(`    ${i + 1}. ${agent.name}${mark}`);
+  });
+
+  const defaultSelection = detected.length > 0
+    ? detected.map((key) => agentKeys.indexOf(key) + 1).join(",")
+    : "1";
+  const selectionStr = await ask(rl, "\n  Enter numbers, comma-separated", defaultSelection);
+
+  const selectedIndices = selectionStr
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => n >= 1 && n <= agentKeys.length);
+  const selectedAgents = [...new Set(selectedIndices.map((i) => agentKeys[i - 1]))];
+
+  if (selectedAgents.length === 0) {
+    console.log("  No agents selected. Defaulting to Claude Code.");
+    selectedAgents.push("claude-code");
+  }
+
+  // 5. Server URL
+  const serverUrl = await ask(rl, "\n  Fathom server URL", "http://localhost:4243");
+
+  // 6. API key
+  const apiKey = await ask(rl, "  API key (from dashboard or server first-run output)", "");
+
+  // 7. Hooks — only ask if Claude Code is selected
+  const hasClaude = selectedAgents.includes("claude-code");
+  let enableRecallHook = false;
+  let enablePrecompactHook = false;
+  if (hasClaude) {
+    console.log();
+    enableRecallHook = await askYesNo(rl, "  Enable vault recall on every message (UserPromptSubmit)?", true);
+    enablePrecompactHook = await askYesNo(rl, "  Enable PreCompact vault snapshot hook?", true);
+  }
 
   rl.close();
 
@@ -181,6 +344,8 @@ async function runInit() {
     vault,
     server: serverUrl,
     apiKey,
+    description,
+    agents: selectedAgents,
     hooks: {
       "vault-recall": { enabled: enableRecallHook },
       "precompact-snapshot": { enabled: enablePrecompactHook },
@@ -205,60 +370,53 @@ async function runInit() {
     console.log(`  · ${vault}/ (already exists)`);
   }
 
-  // .mcp.json
-  const mcpJsonPath = path.join(cwd, ".mcp.json");
-  const mcpJson = readJsonFile(mcpJsonPath) || {};
-  deepMerge(mcpJson, {
-    mcpServers: {
-      "fathom-vault": {
-        command: "npx",
-        args: ["-y", "fathom-mcp"],
-      },
-    },
-  });
-  writeJsonFile(mcpJsonPath, mcpJson);
-  console.log("  ✓ .mcp.json");
-
-  // .claude/settings.local.json — hook registrations
-  const claudeSettingsPath = path.join(cwd, ".claude", "settings.local.json");
-  const claudeSettings = readJsonFile(claudeSettingsPath) || {};
-
-  // Claude Code hooks use matcher + hooks array format:
-  // { hooks: [{ type: "command", command: "...", timeout: N }] }
-  const hooks = {};
-  if (enableRecallHook) {
-    hooks["UserPromptSubmit"] = [
-      ...(claudeSettings.hooks?.["UserPromptSubmit"] || []),
-    ];
-    const recallCmd = "bash .fathom/scripts/fathom-recall.sh";
-    const hasFathomRecall = hooks["UserPromptSubmit"].some((entry) =>
-      entry.hooks?.some((h) => h.command === recallCmd)
-    );
-    if (!hasFathomRecall) {
-      hooks["UserPromptSubmit"].push({
-        hooks: [{ type: "command", command: recallCmd, timeout: 10000 }],
-      });
-    }
-  }
-  if (enablePrecompactHook) {
-    hooks["PreCompact"] = [
-      ...(claudeSettings.hooks?.["PreCompact"] || []),
-    ];
-    const precompactCmd = "bash .fathom/scripts/fathom-precompact.sh";
-    const hasFathomPrecompact = hooks["PreCompact"].some((entry) =>
-      entry.hooks?.some((h) => h.command === precompactCmd)
-    );
-    if (!hasFathomPrecompact) {
-      hooks["PreCompact"].push({
-        hooks: [{ type: "command", command: precompactCmd, timeout: 30000 }],
-      });
-    }
+  // Per-agent config files
+  for (const agentKey of selectedAgents) {
+    const agent = AGENTS[agentKey];
+    const result = agent.configWriter(cwd);
+    console.log(`  ✓ ${result}`);
   }
 
-  if (Object.keys(hooks).length > 0) {
-    claudeSettings.hooks = { ...(claudeSettings.hooks || {}), ...hooks };
-    writeJsonFile(claudeSettingsPath, claudeSettings);
-    console.log("  ✓ .claude/settings.local.json (hooks)");
+  // Claude Code hooks — only if claude-code is selected
+  if (hasClaude && (enableRecallHook || enablePrecompactHook)) {
+    const claudeSettingsPath = path.join(cwd, ".claude", "settings.local.json");
+    const claudeSettings = readJsonFile(claudeSettingsPath) || {};
+
+    const hooks = {};
+    if (enableRecallHook) {
+      hooks["UserPromptSubmit"] = [
+        ...(claudeSettings.hooks?.["UserPromptSubmit"] || []),
+      ];
+      const recallCmd = "bash .fathom/scripts/fathom-recall.sh";
+      const hasFathomRecall = hooks["UserPromptSubmit"].some((entry) =>
+        entry.hooks?.some((h) => h.command === recallCmd)
+      );
+      if (!hasFathomRecall) {
+        hooks["UserPromptSubmit"].push({
+          hooks: [{ type: "command", command: recallCmd, timeout: 10000 }],
+        });
+      }
+    }
+    if (enablePrecompactHook) {
+      hooks["PreCompact"] = [
+        ...(claudeSettings.hooks?.["PreCompact"] || []),
+      ];
+      const precompactCmd = "bash .fathom/scripts/fathom-precompact.sh";
+      const hasFathomPrecompact = hooks["PreCompact"].some((entry) =>
+        entry.hooks?.some((h) => h.command === precompactCmd)
+      );
+      if (!hasFathomPrecompact) {
+        hooks["PreCompact"].push({
+          hooks: [{ type: "command", command: precompactCmd, timeout: 30000 }],
+        });
+      }
+    }
+
+    if (Object.keys(hooks).length > 0) {
+      claudeSettings.hooks = { ...(claudeSettings.hooks || {}), ...hooks };
+      writeJsonFile(claudeSettingsPath, claudeSettings);
+      console.log("  ✓ .claude/settings.local.json (hooks)");
+    }
   }
 
   // .gitignore
@@ -270,7 +428,11 @@ async function runInit() {
     const regClient = createClient({ server: serverUrl, apiKey, workspace });
     const isUp = await regClient.healthCheck();
     if (isUp) {
-      const regResult = await regClient.registerWorkspace(workspace, cwd);
+      const regResult = await regClient.registerWorkspace(workspace, cwd, {
+        vault,
+        description,
+        agents: selectedAgents,
+      });
       if (regResult.ok) {
         console.log(`  ✓ Registered workspace "${workspace}" with server`);
       } else if (regResult.error) {
@@ -279,17 +441,15 @@ async function runInit() {
     }
   }
 
-  console.log(`
-  Done! Fathom MCP is configured for workspace "${workspace}".
-
-  Next steps:
-    1. Start the server:  cd fathom-server && python app.py
-    2. Open Claude Code in this directory — fathom tools will be available.
-    3. Add the following to your CLAUDE.md:
-
-       ## Fathom Vault
-       Load fathom tools on startup: \`ToolSearch query="+fathom" max_results=20\`
-`);
+  // Per-agent next steps
+  console.log(`\n  Done! Fathom MCP is configured for workspace "${workspace}".`);
+  console.log("\n  Next steps:");
+  console.log("    1. Start the server:  cd fathom-server && python app.py");
+  for (const agentKey of selectedAgents) {
+    const agent = AGENTS[agentKey];
+    console.log(`    · ${agent.name}: ${agent.nextSteps}`);
+  }
+  console.log();
 }
 
 // --- Status command ----------------------------------------------------------
@@ -304,6 +464,7 @@ async function runStatus() {
   console.log(`  Vault:     ${config.vault}`);
   console.log(`  Server:    ${config.server}`);
   console.log(`  API Key:   ${config.apiKey ? config.apiKey.slice(0, 7) + "..." + config.apiKey.slice(-4) : "(not set)"}`);
+  console.log(`  Agents:    ${config.agents.length > 0 ? config.agents.join(", ") : "(none)"}`);
 
   // Check vault directory
   const vaultExists = fs.existsSync(config.vault);
@@ -319,8 +480,15 @@ async function runStatus() {
       const names = Object.keys(wsResult.profiles);
       console.log(`  Workspaces: ${names.join(", ") || "(none)"}`);
       for (const [name, profile] of Object.entries(wsResult.profiles)) {
-        const status = profile.running ? "running" : "stopped";
-        console.log(`    ${name}: ${status}${profile.model ? ` (${profile.model})` : ""}`);
+        if (profile.type === "human") {
+          console.log(`    ${name}: human`);
+        } else {
+          const agentLabel = profile.agents?.length > 0
+            ? ` [${profile.agents.join(", ")}]`
+            : profile.architecture ? ` [${profile.architecture}]` : "";
+          const runStatus = profile.running ? "running" : "stopped";
+          console.log(`    ${name}: ${runStatus}${agentLabel}`);
+        }
       }
     }
   }
@@ -330,23 +498,30 @@ async function runStatus() {
 
 // --- Main --------------------------------------------------------------------
 
-const command = process.argv[2];
+// Guard: only run CLI when this module is the entry point (not when imported by tests)
+const isMain = process.argv[1] && (
+  process.argv[1].endsWith("/cli.js") || process.argv[1].endsWith("fathom-mcp")
+);
 
-if (command === "init") {
-  runInit().catch((e) => {
-    console.error(`Error: ${e.message}`);
+if (isMain) {
+  const command = process.argv[2];
+
+  if (command === "init") {
+    runInit().catch((e) => {
+      console.error(`Error: ${e.message}`);
+      process.exit(1);
+    });
+  } else if (command === "status") {
+    runStatus().catch((e) => {
+      console.error(`Error: ${e.message}`);
+      process.exit(1);
+    });
+  } else if (!command || command === "serve") {
+    // Default: start MCP server
+    import("./index.js");
+  } else {
+    console.error(`Unknown command: ${command}`);
+    console.error("Usage: fathom-mcp [init|status|serve]");
     process.exit(1);
-  });
-} else if (command === "status") {
-  runStatus().catch((e) => {
-    console.error(`Error: ${e.message}`);
-    process.exit(1);
-  });
-} else if (!command || command === "serve") {
-  // Default: start MCP server
-  import("./index.js");
-} else {
-  console.error(`Unknown command: ${command}`);
-  console.error("Usage: fathom-mcp [init|status|serve]");
-  process.exit(1);
+  }
 }
