@@ -371,6 +371,20 @@ async function runInit() {
     console.log(`  · ${vault}/ (already exists)`);
   }
 
+  // fathom-agents.md — boilerplate agent instructions
+  const agentMdSrc = path.join(__dirname, "..", "fathom-agents.md");
+  const agentMdDest = path.join(cwd, ".fathom", "fathom-agents.md");
+  try {
+    let template = fs.readFileSync(agentMdSrc, "utf-8");
+    template = template
+      .replace(/\{\{WORKSPACE_NAME\}\}/g, workspace)
+      .replace(/\{\{VAULT_DIR\}\}/g, vault)
+      .replace(/\{\{DESCRIPTION\}\}/g, description || `${workspace} workspace`);
+    fs.mkdirSync(path.dirname(agentMdDest), { recursive: true });
+    fs.writeFileSync(agentMdDest, template);
+    console.log("  ✓ .fathom/fathom-agents.md");
+  } catch { /* template not found — skip silently */ }
+
   // Per-agent config files
   for (const agentKey of selectedAgents) {
     const agent = AGENTS[agentKey];
@@ -450,7 +464,15 @@ async function runInit() {
     const agent = AGENTS[agentKey];
     console.log(`    · ${agent.name}: ${agent.nextSteps}`);
   }
-  console.log();
+  console.log(`
+  Agent instructions:
+    Some instructions are needed for your agent to use Fathom + Memento
+    effectively (memory discipline, vault conventions, cross-workspace
+    communication). Saved to: .fathom/fathom-agents.md
+
+    Paste it into your CLAUDE.md, AGENTS.md, or equivalent — or point
+    your agent at the file and ask it to integrate the instructions.
+`);
 }
 
 // --- Status command ----------------------------------------------------------
