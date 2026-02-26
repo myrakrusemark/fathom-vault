@@ -1,3 +1,35 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fathom-server"
+version = "0.1.0"
+description = "Dashboard + REST API + background services for the Fathom vault layer"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "flask>=3.1.0",
+    "flask-sock>=0.7.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+fathom-server = "app:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["routes*", "services*"]
+
+[tool.setuptools.package-data]
+"*" = ["frontend/dist/**/*"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100

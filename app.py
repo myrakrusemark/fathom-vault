@@ -78,10 +78,29 @@ def spa(path):  # noqa: ARG001
     return send_from_directory(FRONTEND_DIR, "index.html")
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for `fathom-server` CLI command."""
+    from auth import load_server_config
+
     parser = argparse.ArgumentParser(description="Fathom Server")
     parser.add_argument(
         "--port", type=int, default=PORT, help=f"Port to listen on (default: {PORT})"
     )
-    args = parser.parse_args()
-    app.run(port=args.port, threaded=True)
+    cli_args = parser.parse_args()
+
+    # Ensure server config exists (generates API key on first run)
+    server_config = load_server_config()
+    api_key = server_config["api_key"]
+    auth_enabled = server_config.get("auth_enabled", False)
+
+    print("\n  Fathom Server v0.1.0")
+    print(f"  Port: {cli_args.port}")
+    print(f"  Auth: {'enabled' if auth_enabled else 'disabled (enable via dashboard)'}")
+    print(f"  API Key: {api_key[:7]}...{api_key[-4:]}")
+    print(f"  Dashboard: http://localhost:{cli_args.port}\n")
+
+    app.run(port=cli_args.port, threaded=True)
+
+
+if __name__ == "__main__":
+    main()
