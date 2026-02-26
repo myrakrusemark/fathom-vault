@@ -74,6 +74,10 @@ _WORKSPACE_DEFAULTS = {
     "ping": {
         "routines": [_DEFAULT_ROUTINE],
     },
+    "profile": {
+        "model": "",
+        "role": "",
+    },
 }
 
 

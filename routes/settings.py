@@ -1,11 +1,15 @@
 """Settings API — workspace-scoped config and manual index trigger."""
 
+import subprocess
+
 from flask import Blueprint, jsonify, request
 
 from services.indexer import indexer
 from services.settings import (
     add_workspace,
+    load_global_settings,
     load_settings,
+    load_workspace_settings,
     remove_workspace,
     save_settings,
     set_default_workspace,
@@ -137,6 +141,47 @@ def index_now():
     """Trigger an immediate background index run."""
     indexer.run_now()
     return jsonify({"ok": True})
+
+
+# --- Workspace profiles ---
+
+
+@bp.route("/api/workspaces/profiles", methods=["GET"])
+def workspace_profiles():
+    """Return profile + live status for every workspace."""
+    gs = load_global_settings()
+    profiles = {}
+
+    for ws_name in gs["workspaces"]:
+        ws_settings = load_workspace_settings(ws_name)
+        profile = ws_settings.get("profile", {})
+
+        # Live running check via tmux
+        tmux_session = f"{ws_name}_fathom-session"
+        try:
+            result = subprocess.run(
+                ["tmux", "has-session", "-t", tmux_session],
+                capture_output=True,
+                timeout=2,
+            )
+            running = result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            running = False
+
+        # Extract last_ping_at from the first routine
+        last_ping = None
+        routines = ws_settings.get("ping", {}).get("routines", [])
+        if routines:
+            last_ping = routines[0].get("last_ping_at")
+
+        profiles[ws_name] = {
+            "model": profile.get("model", ""),
+            "role": profile.get("role", ""),
+            "running": running,
+            "last_ping": last_ping,
+        }
+
+    return jsonify({"profiles": profiles})
 
 
 # --- Workspace CRUD endpoints ---
