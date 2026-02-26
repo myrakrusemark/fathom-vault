@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Fathom Vault — standalone viewer + write API for the vault layer."""
+"""Fathom Server — dashboard + REST API + background services for the vault layer."""
+
+import argparse
 
 from flask import Flask, send_from_directory
 
@@ -77,4 +79,9 @@ def spa(path):  # noqa: ARG001
 
 
 if __name__ == "__main__":
-    app.run(port=PORT, threaded=True)
+    parser = argparse.ArgumentParser(description="Fathom Server")
+    parser.add_argument(
+        "--port", type=int, default=PORT, help=f"Port to listen on (default: {PORT})"
+    )
+    args = parser.parse_args()
+    app.run(port=args.port, threaded=True)

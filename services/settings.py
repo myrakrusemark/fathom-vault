@@ -117,8 +117,8 @@ def load_global_settings() -> dict:
     default_ws = saved.get("default_workspace")
 
     if not workspaces or not isinstance(workspaces, dict):
-        workspaces = {"fathom": "/data/Dropbox/Work"}
-        default_ws = "fathom"
+        workspaces = {}
+        default_ws = None
     elif not default_ws or default_ws not in workspaces:
         default_ws = next(iter(workspaces))
 

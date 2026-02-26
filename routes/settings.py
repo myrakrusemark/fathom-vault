@@ -1,9 +1,15 @@
-"""Settings API — workspace-scoped config and manual index trigger."""
+"""Settings API — workspace-scoped config, workspace CRUD, auth, and manual index trigger."""
 
 import subprocess
 
 from flask import Blueprint, jsonify, request
 
+from auth import (
+    get_api_key,
+    is_auth_enabled,
+    regenerate_api_key,
+    set_auth_enabled,
+)
 from services.indexer import indexer
 from services.settings import (
     add_workspace,
@@ -220,3 +226,39 @@ def update_default_workspace():
     if not ok:
         return jsonify({"error": err}), 400
     return jsonify({"ok": True, "default_workspace": name})
+
+
+# --- Auth / API key management ---
+
+
+@bp.route("/api/auth/status")
+def auth_status():
+    """Return current auth config — key (masked) and enabled status."""
+    key = get_api_key()
+    # Show first 7 chars (prefix + 4) and last 4 for identification
+    masked = key[:7] + "..." + key[-4:] if len(key) > 11 else key
+    return jsonify({"auth_enabled": is_auth_enabled(), "api_key_masked": masked})
+
+
+@bp.route("/api/auth/key")
+def auth_key():
+    """Return the full API key — for copy-paste into .fathom.json during setup."""
+    return jsonify({"api_key": get_api_key()})
+
+
+@bp.route("/api/auth/key/regenerate", methods=["POST"])
+def auth_key_regenerate():
+    """Generate a new API key, invalidating the old one."""
+    new_key = regenerate_api_key()
+    return jsonify({"api_key": new_key})
+
+
+@bp.route("/api/auth/toggle", methods=["POST"])
+def auth_toggle():
+    """Enable or disable API key auth. Body: {"enabled": true|false}."""
+    data = request.get_json(silent=True) or {}
+    enabled = data.get("enabled")
+    if not isinstance(enabled, bool):
+        return jsonify({"error": "enabled must be a boolean"}), 400
+    set_auth_enabled(enabled)
+    return jsonify({"auth_enabled": enabled})

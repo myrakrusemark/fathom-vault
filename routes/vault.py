@@ -455,3 +455,92 @@ def vault_search():
         return jsonify({"error": "Search timed out"}), 504
     except FileNotFoundError:
         return jsonify({"error": "qmd not found on PATH"}), 500
+
+
+@bp.route("/api/search")
+def unified_search():
+    """Unified search endpoint — delegates to qmd with mode param.
+
+    Query params:
+        q         Search query string (required).
+        workspace Workspace name (uses default if omitted).
+        mode      Search mode: "bm25" (keyword), "vector" (semantic), "hybrid" (default).
+        n         Result limit (int, default from settings).
+        timeout   Timeout in seconds (int, default from settings).
+
+    Response: {"results": [...], "query": "...", "mode": "...", "workspace": "..."}
+    """
+    vault_dir, ws_name, err_resp, status = _resolve_workspace()
+    if err_resp:
+        return err_resp, status
+
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify({"results": [], "query": "", "mode": "", "workspace": ws_name})
+
+    settings = load_settings(ws_name)
+    mcp = settings["mcp"]
+    excluded_dirs = settings["background_index"].get("excluded_dirs", [])
+
+    mode = request.args.get("mode", "hybrid")
+    if mode not in ("bm25", "vector", "hybrid"):
+        return jsonify({"error": 'mode must be "bm25", "vector", or "hybrid"'}), 400
+
+    n_param = request.args.get("n")
+    timeout_param = request.args.get("timeout")
+
+    try:
+        n = int(n_param) if n_param is not None else mcp["search_results"]
+    except (ValueError, TypeError):
+        n = mcp["search_results"]
+
+    try:
+        timeout = int(timeout_param) if timeout_param is not None else mcp["query_timeout_seconds"]
+    except (ValueError, TypeError):
+        timeout = mcp["query_timeout_seconds"]
+
+    # Map mode to qmd subcommand
+    mode_to_cmd = {"bm25": "search", "vector": "vsearch", "hybrid": "query"}
+    cmd = ["qmd", mode_to_cmd[mode], q, "-n", str(n)]
+
+    # Scope to workspace collection
+    workspace = request.args.get("workspace")
+    collection = workspace or ws_name
+    cmd.extend(["-c", collection])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        parsed = _parse_qmd_query_output(result.stdout)
+
+        if excluded_dirs:
+            before = len(parsed)
+            parsed = [
+                r
+                for r in parsed
+                if not any(
+                    r["file"] == ex.rstrip("/") or r["file"].startswith(ex.rstrip("/") + "/")
+                    for ex in excluded_dirs
+                )
+            ]
+            excluded_count = before - len(parsed)
+        else:
+            excluded_count = 0
+
+        return jsonify(
+            {
+                "results": parsed,
+                "excluded": excluded_count,
+                "query": q,
+                "mode": mode,
+                "workspace": collection,
+            }
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Search timed out"}), 504
+    except FileNotFoundError:
+        return jsonify({"error": "qmd not found on PATH"}), 500
