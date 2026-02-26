@@ -31,6 +31,10 @@ _AGENT_COMMANDS = {
         "command": ["gemini"],
         "restart_flag": None,
     },
+    "opencode": {
+        "command": ["opencode"],
+        "restart_flag": None,
+    },
 }
 
 

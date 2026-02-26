@@ -262,7 +262,6 @@ describe("agent detection heuristics", () => {
     assert.equal(AGENTS["claude-code"].detect(tmpDir), true);
     assert.equal(AGENTS["gemini"].detect(tmpDir), true);
     assert.equal(AGENTS["codex"].detect(tmpDir), false);
-    assert.equal(AGENTS["cursor"].detect(tmpDir), false);
-    assert.equal(AGENTS["vscode"].detect(tmpDir), false);
+    assert.equal(AGENTS["opencode"].detect(tmpDir), false);
   });
 });

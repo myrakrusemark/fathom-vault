@@ -5,8 +5,9 @@
 Multi-agent support.
 
 - **Multi-agent init wizard** — auto-detects installed agents and generates per-agent MCP configs
-- **Supported agents:** Claude Code, OpenAI Codex, Gemini CLI, Cursor, VS Code Copilot, Windsurf
-- **Per-agent config writers** — `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `~/.codeium/windsurf/mcp_config.json`
+- **Supported agents:** Claude Code, OpenAI Codex, Gemini CLI, OpenCode
+- **Per-agent config writers** — `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `opencode.json`
+- **Agent instructions boilerplate** — `fathom-agents.md` template for memory discipline, vault conventions, cross-workspace communication
 - **Conditional hooks** — hook setup only for Claude Code (other agents don't support hooks)
 - **`agents` array** replaces legacy `architecture` string in `.fathom.json` — backward compatible
 - **Server-side agent dispatch** — persistent sessions launch the correct agent CLI per workspace

@@ -1,6 +1,6 @@
 {
   "name": "fathom-mcp",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "MCP server for Fathom — vault operations, search, rooms, and cross-workspace communication",
   "type": "module",
   "bin": {
@@ -40,9 +40,7 @@
     "claude",
     "codex",
     "gemini",
-    "cursor",
-    "copilot",
-    "windsurf",
+    "opencode",
     "ai-agent",
     "memory"
   ]

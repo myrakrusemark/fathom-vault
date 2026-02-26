@@ -18,9 +18,7 @@ MCP server for [Fathom](https://hifathom.com) — vault operations, search, room
 | **Claude Code** | `.mcp.json` | `.claude/` directory |
 | **OpenAI Codex** | `.codex/config.toml` | `.codex/` directory |
 | **Gemini CLI** | `.gemini/settings.json` | `.gemini/` directory |
-| **Cursor** | `.cursor/mcp.json` | `.cursor/` directory |
-| **VS Code Copilot** | `.vscode/mcp.json` | `.vscode/` directory |
-| **Windsurf** | `~/.codeium/windsurf/mcp_config.json` | `~/.codeium/windsurf/` directory |
+| **OpenCode** | `opencode.json` | `opencode.json` file |
 
 The init wizard auto-detects which agents you have and generates the right config for each.
 

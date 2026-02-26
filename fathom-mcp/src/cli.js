@@ -10,7 +10,6 @@
  */
 
 import fs from "fs";
-import os from "os";
 import path from "path";
 import readline from "readline";
 import { fileURLToPath } from "url";
@@ -157,42 +156,20 @@ function writeGeminiJson(cwd) {
   return ".gemini/settings.json";
 }
 
-function writeCursorJson(cwd) {
-  const dir = path.join(cwd, ".cursor");
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, "mcp.json");
-  const existing = readJsonFile(filePath) || {};
-  deepMerge(existing, { mcpServers: { "fathom-vault": MCP_SERVER_ENTRY } });
-  writeJsonFile(filePath, existing);
-  return ".cursor/mcp.json";
-}
-
-function writeVscodeJson(cwd) {
-  const dir = path.join(cwd, ".vscode");
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, "mcp.json");
+function writeOpencodeJson(cwd) {
+  const filePath = path.join(cwd, "opencode.json");
   const existing = readJsonFile(filePath) || {};
   deepMerge(existing, {
-    servers: {
+    mcp: {
       "fathom-vault": {
-        type: "stdio",
-        command: "npx",
-        args: ["-y", "fathom-mcp"],
+        type: "local",
+        command: ["npx", "-y", "fathom-mcp"],
+        enabled: true,
       },
     },
   });
   writeJsonFile(filePath, existing);
-  return ".vscode/mcp.json";
-}
-
-function writeWindsurfJson(_cwd) {
-  const dir = path.join(os.homedir(), ".codeium", "windsurf");
-  fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, "mcp_config.json");
-  const existing = readJsonFile(filePath) || {};
-  deepMerge(existing, { mcpServers: { "fathom-vault": MCP_SERVER_ENTRY } });
-  writeJsonFile(filePath, existing);
-  return "~/.codeium/windsurf/mcp_config.json";
+  return "opencode.json";
 }
 
 const AGENTS = {
@@ -217,31 +194,17 @@ const AGENTS = {
     hasHooks: false,
     nextSteps: "Run `gemini` in this directory — fathom tools load automatically.",
   },
-  "cursor": {
-    name: "Cursor",
-    detect: (cwd) => fs.existsSync(path.join(cwd, ".cursor")),
-    configWriter: writeCursorJson,
+  "opencode": {
+    name: "OpenCode",
+    detect: (cwd) => fs.existsSync(path.join(cwd, "opencode.json")),
+    configWriter: writeOpencodeJson,
     hasHooks: false,
-    nextSteps: "Restart Cursor — fathom tools appear in MCP settings.",
-  },
-  "vscode": {
-    name: "VS Code Copilot",
-    detect: (cwd) => fs.existsSync(path.join(cwd, ".vscode")),
-    configWriter: writeVscodeJson,
-    hasHooks: false,
-    nextSteps: "Reload VS Code — fathom tools appear in Copilot.",
-  },
-  "windsurf": {
-    name: "Windsurf",
-    detect: () => fs.existsSync(path.join(os.homedir(), ".codeium", "windsurf")),
-    configWriter: writeWindsurfJson,
-    hasHooks: false,
-    nextSteps: "Restart Windsurf — fathom tools appear in Cascade.",
+    nextSteps: "Run `opencode` in this directory — fathom tools load automatically.",
   },
 };
 
 // Exported for testing
-export { AGENTS, writeMcpJson, writeCodexToml, writeGeminiJson, writeCursorJson, writeVscodeJson, writeWindsurfJson };
+export { AGENTS, writeMcpJson, writeCodexToml, writeGeminiJson, writeOpencodeJson };
 
 // --- Init wizard -------------------------------------------------------------
 
