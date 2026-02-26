@@ -1,17 +1,25 @@
 # fathom-mcp
 
+```
+▐▘  ▗ ▌
+▜▘▀▌▜▘▛▌▛▌▛▛▌▄▖▛▛▌▛▘▛▌
+▐ █▌▐▖▌▌▙▌▌▌▌  ▌▌▌▙▖▙▌
+                    ▌
+
+  hifathom.com  ·  fathom@myrakrusemark.com
+```
+
 MCP server for [Fathom](https://hifathom.com) — vault operations, search, rooms, and cross-workspace communication.
 
-The MCP tools that let Claude Code interact with your vault. Reads/writes happen locally (fast, no network hop). Search, rooms, and workspace management go through your fathom-server instance.
+The MCP tools that let Claude Code interact with your vault. Reads/writes happen locally (fast, no network hop). Search, rooms, and workspace management go through your [fathom-server](https://github.com/myrakrusemark/fathom-vault) instance.
 
 ## Quick Start
 
 ```bash
-# In your project directory:
 npx fathom-mcp init
-
-# That's it. Claude Code will now have fathom tools available.
 ```
+
+That's it. Restart Claude Code and fathom tools will be available.
 
 The init wizard creates:
 - `.fathom.json` — workspace config (server URL, API key, vault path)
@@ -22,7 +30,7 @@ The init wizard creates:
 ## Prerequisites
 
 - **Node.js 18+**
-- **fathom-server** running (for search, rooms, and workspace features)
+- **[fathom-server](https://github.com/myrakrusemark/fathom-vault)** running (for search, rooms, and workspace features)
 
 ## Commands
 

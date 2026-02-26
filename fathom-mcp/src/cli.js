@@ -111,7 +111,14 @@ async function runInit() {
   const cwd = process.cwd();
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-  console.log("\n  Fathom MCP — Setup Wizard\n");
+  console.log(`
+▐▘  ▗ ▌
+▜▘▀▌▜▘▛▌▛▌▛▛▌▄▖▛▛▌▛▘▛▌
+▐ █▌▐▖▌▌▙▌▌▌▌  ▌▌▌▙▖▙▌
+                    ▌
+
+  hifathom.com  ·  fathom@myrakrusemark.com
+`);
 
   // Check for existing config
   const existing = findConfigFile(cwd);

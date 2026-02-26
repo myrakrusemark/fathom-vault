@@ -39,24 +39,25 @@ Runs once, serves all workspaces. Per-workspace MCP tools are provided by [`fath
 
 ## Install
 
-### Option A — pip (recommended)
-
-```bash
-pip install fathom-server
-fathom-server                # Start on :4243
-fathom-server --port 8080    # Custom port
-```
-
-### Option B — from source
-
 ```bash
 git clone https://github.com/myrakrusemark/fathom-vault.git
 cd fathom-vault
 
-pip install -r requirements.txt
+# Install Python dependencies
+pip install -e .              # editable install — includes CLI entry point
+pip install -e '.[dev]'       # optional: adds pytest + ruff
 
+# Build the frontend
 cd frontend && npm install && npm run build && cd ..
+```
 
+After install you can run the server two ways:
+
+```bash
+fathom-server                # CLI entry point (from pip install -e .)
+fathom-server --port 8080    # custom port
+
+# or directly:
 python app.py
 ```
 
@@ -76,11 +77,7 @@ You can also add workspaces via the dashboard at Settings > Workspaces.
 ## Run
 
 ```bash
-# pip install
-fathom-server
-
-# or from source
-python app.py
+fathom-server              # or: python app.py
 ```
 
 Opens at `http://localhost:4243`. On startup the server:
