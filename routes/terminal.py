@@ -24,6 +24,17 @@ def terminal(ws):
     qs = parse_qs(ws.environ.get("QUERY_STRING", ""))
     workspace = qs.get("workspace", [None])[0]
 
+    # Read initial dimensions from query params so the PTY is correctly
+    # sized *before* tmux attaches — prevents garbled first render.
+    try:
+        init_cols = max(1, min(500, int(qs.get("cols", [80])[0])))
+    except (ValueError, IndexError):
+        init_cols = 80
+    try:
+        init_rows = max(1, min(200, int(qs.get("rows", [24])[0])))
+    except (ValueError, IndexError):
+        init_rows = 24
+
     tmux_session = _session_name(workspace)
     ensure_running(workspace)
 
@@ -38,6 +49,13 @@ def terminal(ws):
 
     try:
         master_fd, slave_fd = pty.openpty()
+        # Set PTY size before launching subprocess so tmux sees the
+        # correct dimensions from the start (no garbled initial render).
+        fcntl.ioctl(
+            master_fd,
+            termios.TIOCSWINSZ,
+            struct.pack("HHHH", init_rows, init_cols, 0, 0),
+        )
         subprocess.Popen(
             [
                 "tmux",

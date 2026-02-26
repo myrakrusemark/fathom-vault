@@ -9,6 +9,7 @@ Per-workspace settings (<project>/.fathom/settings.json):
 
 import json
 import os
+import re
 import uuid
 
 _SETTINGS_DIR = os.path.expanduser("~/.config/fathom-vault")
@@ -74,10 +75,6 @@ _WORKSPACE_DEFAULTS = {
     "ping": {
         "routines": [_DEFAULT_ROUTINE],
     },
-    "profile": {
-        "model": "",
-        "role": "",
-    },
 }
 
 
@@ -102,6 +99,48 @@ def new_routine_id() -> str:
     return uuid.uuid4().hex[:8]
 
 
+# ── Workspace entry normalization ─────────────────────────────────────────────
+
+
+def _normalize_workspace_entry(entry) -> dict:
+    """Normalize a workspace entry to dict format.
+
+    Handles both legacy string entries ("path") and rich dict entries
+    ({"path": ..., "vault": ..., "description": ...}).
+    """
+    if isinstance(entry, str):
+        return {
+            "path": entry,
+            "vault": "vault",
+            "description": "",
+            "architecture": "",
+            "type": "local",
+        }
+    if isinstance(entry, dict):
+        return {
+            "path": entry.get("path", ""),
+            "vault": entry.get("vault", "vault"),
+            "description": entry.get("description", ""),
+            "architecture": entry.get("architecture", ""),
+            "type": entry.get("type", "local"),
+        }
+    return {
+        "path": str(entry),
+        "vault": "vault",
+        "description": "",
+        "architecture": "",
+        "type": "local",
+    }
+
+
+def _sanitize_description(text: str) -> str:
+    """Strip HTML tags, whitespace, and truncate to 200 chars."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"<[^>]+>", "", str(text)).strip()
+    return cleaned[:200]
+
+
 # ── Global settings ──────────────────────────────────────────────────────────
 
 
@@ -119,8 +158,11 @@ def load_global_settings() -> dict:
     if not workspaces or not isinstance(workspaces, dict):
         workspaces = {}
         default_ws = None
-    elif not default_ws or default_ws not in workspaces:
-        default_ws = next(iter(workspaces))
+    else:
+        # Normalize all entries to dict format on load
+        workspaces = {name: _normalize_workspace_entry(entry) for name, entry in workspaces.items()}
+        if not default_ws or default_ws not in workspaces:
+            default_ws = next(iter(workspaces))
 
     return {"workspaces": workspaces, "default_workspace": default_ws}
 
@@ -143,11 +185,12 @@ def _resolve_workspace_path(workspace: str = None) -> str:
     """Resolve project root path for a workspace name."""
     gs = load_global_settings()
     ws_name = workspace or gs["default_workspace"]
-    ws_path = gs["workspaces"].get(ws_name)
-    if not ws_path:
+    ws_entry = gs["workspaces"].get(ws_name)
+    if not ws_entry:
         msg = f"Unknown workspace: {ws_name}"
         raise ValueError(msg)
-    return ws_path
+    # Entry is always a dict after normalization in load_global_settings
+    return ws_entry["path"]
 
 
 def load_workspace_settings(workspace: str = None) -> dict:
@@ -221,8 +264,11 @@ def _migrate_to_split_settings() -> None:
     if not workspaces:
         return
 
-    # Detect if migration is needed
-    needs_path_migration = any(p.endswith("/vault") for p in workspaces.values())
+    # Detect if migration is needed — extract paths from both string and dict entries
+    def _entry_path(entry):
+        return entry["path"] if isinstance(entry, dict) else entry
+
+    needs_path_migration = any(_entry_path(p).endswith("/vault") for p in workspaces.values())
     operational_keys = ("background_index", "mcp", "activity", "crystal_regen", "ping", "terminal")
     has_operational_config = any(k in saved for k in operational_keys)
 
@@ -231,7 +277,8 @@ def _migrate_to_split_settings() -> None:
 
     # Step 1: Strip /vault suffix from workspace paths
     new_workspaces = {}
-    for name, ws_path in workspaces.items():
+    for name, entry in workspaces.items():
+        ws_path = _entry_path(entry)
         if ws_path.endswith("/vault"):
             project_root = ws_path[:-6]
             if os.path.isdir(project_root):
@@ -316,8 +363,18 @@ def save_settings(settings: dict, workspace: str = None) -> None:
 # ── Workspace CRUD ───────────────────────────────────────────────────────────
 
 
-def add_workspace(name: str, project_path: str) -> tuple[bool, str]:
-    """Add a workspace. Path is the project root (must contain vault/ subdir).
+def add_workspace(
+    name: str,
+    project_path: str,
+    vault: str = "vault",
+    description: str = "",
+    architecture: str = "",
+    type: str = "local",
+) -> tuple[bool, str]:
+    """Add or update a workspace. Path is the project root (must contain vault/ subdir).
+
+    Idempotent: same name + same path = update metadata (vault, description).
+    Same name + different path = reject with error.
 
     Creates .fathom/ directory with default settings if missing.
     Returns (ok, error_message).
@@ -329,15 +386,36 @@ def add_workspace(name: str, project_path: str) -> tuple[bool, str]:
     if not os.path.isdir(project_path):
         return False, f"Path does not exist: {project_path}"
 
-    vault_dir = os.path.join(project_path, "vault")
+    vault_subdir = vault or "vault"
+    vault_dir = os.path.join(project_path, vault_subdir)
     if not os.path.isdir(vault_dir):
-        return False, f"No vault/ subdirectory found at: {vault_dir}"
+        return False, f"No {vault_subdir}/ subdirectory found at: {vault_dir}"
 
     gs = load_global_settings()
-    if name in gs["workspaces"]:
-        return False, f'Workspace "{name}" already exists'
+    existing = gs["workspaces"].get(name)
+    if existing:
+        existing_path = existing["path"]
+        if os.path.realpath(existing_path) != os.path.realpath(project_path):
+            return False, f'Workspace "{name}" already exists at a different path'
+        # Idempotent upsert — merge new metadata into existing entry
+        if vault:
+            existing["vault"] = vault_subdir
+        if description:
+            existing["description"] = _sanitize_description(description)
+        if architecture:
+            existing["architecture"] = architecture
+        if type:
+            existing["type"] = type
+        gs["workspaces"][name] = existing
+    else:
+        gs["workspaces"][name] = {
+            "path": project_path,
+            "vault": vault_subdir,
+            "description": _sanitize_description(description),
+            "architecture": architecture,
+            "type": type,
+        }
 
-    gs["workspaces"][name] = project_path
     save_global_settings(gs)
 
     # Create .fathom/settings.json with defaults if missing

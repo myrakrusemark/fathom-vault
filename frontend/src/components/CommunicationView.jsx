@@ -37,9 +37,15 @@ function lastActiveLabel(isoStr) {
 
 // Sender tooltip component — pure CSS, no library
 function SenderName({ name, profiles }) {
-  const profile = name === 'myra'
-    ? { model: 'Human', role: '', running: true, _isMyrа: true }
-    : profiles[name]
+  const profile = profiles[name]
+  const isHuman = profile?.type === 'human'
+
+  // Status dot color: pink for humans, green/gray for agents
+  function dotColor() {
+    if (isHuman) return '#F472B6'
+    if (profile?.running) return '#34D399'
+    return '#6B7280'
+  }
 
   return (
     <span className="relative group/tip inline-block">
@@ -59,19 +65,20 @@ function SenderName({ name, profiles }) {
           <span className="flex items-center gap-1.5 font-semibold mb-0.5">
             <span
               className="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-              style={{
-                backgroundColor: name === 'myra' ? '#F472B6' : profile.running ? '#34D399' : '#6B7280',
-              }}
+              style={{ backgroundColor: dotColor() }}
             />
             {name}
+            {profile.type && profile.type !== 'local' && (
+              <span className="font-normal opacity-50 text-[10px]">({profile.type})</span>
+            )}
           </span>
-          {profile.model && (
-            <span className="block opacity-70">{profile.model}</span>
+          {profile.architecture && (
+            <span className="block opacity-70">{profile.architecture}</span>
           )}
-          {profile.role && (
-            <span className="block opacity-50 text-[10px]">{profile.role}</span>
+          {profile.description && (
+            <span className="block opacity-50 text-[10px]">{profile.description}</span>
           )}
-          {name !== 'myra' && profile.last_ping && (
+          {!isHuman && profile.last_ping && (
             <span className="block opacity-40 text-[10px] mt-0.5">
               {lastActiveLabel(profile.last_ping)}
             </span>

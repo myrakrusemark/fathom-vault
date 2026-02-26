@@ -21,7 +21,7 @@ export default function App() {
 }
 
 function AppInner() {
-  const { activeWorkspace } = useWorkspace()
+  const { activeWorkspace, workspaces } = useWorkspace()
   const [folders, setFolders] = useState([])
   const [selectedFolder, setSelectedFolder] = useState(null)
   const [files, setFiles] = useState(null)
@@ -38,6 +38,12 @@ function AppInner() {
   const [theme, setTheme] = useState(() => localStorage.getItem('fathom-theme') || 'fathom-v')
   const [sortBy, setSortBy] = useState('modified')
   const [showHeatDots, setShowHeatDots] = useState(true)
+  const [disabledToast, setDisabledToast] = useState(null)
+
+  // Derive workspace type for active workspace
+  const wsEntry = workspaces[activeWorkspace]
+  const wsType = (typeof wsEntry === 'object' ? wsEntry?.type : null) || 'local'
+  const disabledViews = wsType === 'human' ? ['memento', 'activation'] : []
 
   // Apply theme to DOM and persist
   useEffect(() => {
@@ -155,9 +161,19 @@ function AppInner() {
   return (
     <div className="flex h-screen bg-base-100 text-base-content overflow-hidden">
       {/* Header bar */}
-      <div className="fixed top-0 left-0 right-0 z-10 h-10 bg-base-200 border-b border-base-300
+      <div className="fixed top-0 left-0 right-0 z-30 h-10 bg-base-200 border-b border-base-300
         flex items-center px-4 gap-3">
-        <ViewTabs currentView={currentView} setCurrentView={setCurrentView} />
+        <ViewTabs
+          currentView={currentView}
+          setCurrentView={setCurrentView}
+          disabledViews={disabledViews}
+          activeWorkspace={activeWorkspace}
+          onDisabledClick={(viewId) => {
+            const label = viewId === 'memento' ? 'Memento' : viewId === 'activation' ? 'Activation' : viewId
+            setDisabledToast(`Humans don't have ${label}.`)
+            setTimeout(() => setDisabledToast(null), 2500)
+          }}
+        />
         {currentView === 'vault' && (
           <>
             {selectedFolder !== null && (
@@ -247,9 +263,22 @@ function AppInner() {
         <WorkspaceSelector />
       </div>
 
+      {/* Toast for disabled views */}
+      {disabledToast && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-neutral text-neutral-content text-sm shadow-lg animate-fade-in">
+          {disabledToast}
+        </div>
+      )}
+
       {/* Main content below header */}
       <div className="relative flex flex-1 pt-10 overflow-hidden">
-        {currentView === 'activation' ? (
+        {disabledViews.includes(currentView) ? (
+          <div className="flex items-center justify-center flex-1">
+            <p className="text-sm text-neutral-content opacity-40">
+              Not available for human workspaces.
+            </p>
+          </div>
+        ) : currentView === 'activation' ? (
           <ActivationView />
         ) : currentView === 'communication' ? (
           <CommunicationView />

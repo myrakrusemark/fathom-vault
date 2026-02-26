@@ -8,6 +8,7 @@ export default function TerminalPanel({ onClose, filePath }) {
   const { activeWorkspace } = useWorkspace()
   const containerRef = useRef(null)
   const wsRef = useRef(null)
+  const resizeTimer = useRef(null)
   const [lastSelection, setLastSelection] = useState('')
   const [copied, setCopied] = useState(false)
   const [connectionKey, setConnectionKey] = useState(0)
@@ -41,8 +42,14 @@ export default function TerminalPanel({ onClose, filePath }) {
     term.open(containerRef.current)
     fitAddon.fit()
 
+    // Pass initial dimensions in the URL so the backend can set the PTY
+    // size *before* launching tmux — prevents garbled first render.
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsParams = new URLSearchParams({ session: sessionId })
+    const wsParams = new URLSearchParams({
+      session: sessionId,
+      cols: term.cols,
+      rows: term.rows,
+    })
     if (activeWorkspace) wsParams.set('workspace', activeWorkspace)
     const ws = new WebSocket(`${protocol}//${location.host}/ws/terminal?${wsParams}`)
     ws.binaryType = 'arraybuffer'
@@ -65,14 +72,20 @@ export default function TerminalPanel({ onClose, filePath }) {
     })
 
     const observer = new ResizeObserver(() => {
-      fitAddon.fit()
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
-      }
+      // Debounce resize — rapid fire events cause flickering and
+      // send too many resize messages to the PTY.
+      clearTimeout(resizeTimer.current)
+      resizeTimer.current = setTimeout(() => {
+        fitAddon.fit()
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
+        }
+      }, 100)
     })
     observer.observe(containerRef.current)
 
     return () => {
+      clearTimeout(resizeTimer.current)
       observer.disconnect()
       ws.close()
       term.dispose()
@@ -146,7 +159,7 @@ export default function TerminalPanel({ onClose, filePath }) {
       </div>
 
       {/* Terminal */}
-      <div ref={containerRef} className="flex-1 overflow-hidden p-1" />
+      <div ref={containerRef} className="flex-1 min-h-0 overflow-hidden p-1" />
 
       {/* Action toolbar */}
       <div className="shrink-0 border-t border-base-300 bg-base-200 px-2 py-1.5 flex items-center gap-2">

@@ -30,31 +30,43 @@ def get_workspace_path(workspace=None):
 
     if not workspace:
         if default_ws and workspaces.get(default_ws):
-            return workspaces[default_ws], None
+            entry = workspaces[default_ws]
+            return (entry["path"] if isinstance(entry, dict) else entry), None
         # Legacy fallback — derive from terminal.vault_dir or default
         vault_dir = _read_setting("terminal", "vault_dir", default=_DEFAULT_VAULT_DIR)
         return os.path.dirname(vault_dir), None
 
-    ws_path = workspaces.get(workspace)
-    if not ws_path:
+    ws_entry = workspaces.get(workspace)
+    if not ws_entry:
         available = list(workspaces.keys()) if workspaces else []
         return None, {
             "error": f'Unknown workspace: "{workspace}"',
             "available_workspaces": available,
         }
+    # Entry can be a string (legacy) or dict (current)
+    ws_path = ws_entry["path"] if isinstance(ws_entry, dict) else ws_entry
     return ws_path, None
 
 
 def get_vault_path(workspace=None):
     """Resolve vault directory for a workspace name.
 
-    Vault path = workspace project root + "/vault".
+    Vault path = workspace project root + vault subdir (from settings, default "vault").
     Returns (path, None) on success, (None, error_dict) on failure.
     """
     ws_path, err = get_workspace_path(workspace)
     if err:
         return None, err
-    return os.path.join(ws_path, "vault"), None
+
+    # Read vault subdir from workspace entry
+    workspaces = _read_setting("workspaces", default={})
+    default_ws = _read_setting("default_workspace", default=None)
+    ws_name = workspace or default_ws
+    ws_entry = workspaces.get(ws_name, {})
+    vault_subdir = ws_entry.get("vault", "vault") if isinstance(ws_entry, dict) else "vault"
+
+    vault_dir = os.path.join(ws_path, vault_subdir) if vault_subdir != "." else ws_path
+    return vault_dir, None
 
 
 def get_workspace_settings_path(workspace=None):

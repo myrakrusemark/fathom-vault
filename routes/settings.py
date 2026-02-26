@@ -8,6 +8,7 @@ from auth import (
     get_api_key,
     is_auth_enabled,
     regenerate_api_key,
+    require_api_key,
     set_auth_enabled,
 )
 from services.indexer import indexer
@@ -119,8 +120,14 @@ def update_settings():
         if not isinstance(ws, dict):
             return jsonify({"error": "workspaces must be an object"}), 400
         for k, v in ws.items():
-            if not isinstance(k, str) or not isinstance(v, str):
-                return jsonify({"error": "workspaces must be {name: path} strings"}), 400
+            if not isinstance(k, str):
+                return jsonify({"error": "workspace keys must be strings"}), 400
+            if not isinstance(v, str | dict):
+                return jsonify(
+                    {
+                        "error": "workspace values must be path strings or {path, vault, description} objects"
+                    }
+                ), 400
         settings["workspaces"] = ws
     if "default_workspace" in data:
         dw = data["default_workspace"]
@@ -158,9 +165,8 @@ def workspace_profiles():
     gs = load_global_settings()
     profiles = {}
 
-    for ws_name in gs["workspaces"]:
+    for ws_name, ws_entry in gs["workspaces"].items():
         ws_settings = load_workspace_settings(ws_name)
-        profile = ws_settings.get("profile", {})
 
         # Live running check via tmux
         tmux_session = f"{ws_name}_fathom-session"
@@ -181,10 +187,12 @@ def workspace_profiles():
             last_ping = routines[0].get("last_ping_at")
 
         profiles[ws_name] = {
-            "model": profile.get("model", ""),
-            "role": profile.get("role", ""),
+            "architecture": ws_entry.get("architecture", ""),
             "running": running,
             "last_ping": last_ping,
+            "vault": ws_entry.get("vault", "vault"),
+            "description": ws_entry.get("description", ""),
+            "type": ws_entry.get("type", "local"),
         }
 
     return jsonify({"profiles": profiles})
@@ -195,13 +203,24 @@ def workspace_profiles():
 
 @bp.route("/api/workspaces", methods=["POST"])
 def create_workspace():
-    """Add a workspace. Body: {"name": "...", "path": "..."}."""
+    """Add a workspace. Body: {"name": "...", "path": "...", "vault": "...", "description": "..."}."""
     data = request.get_json(silent=True) or {}
     name = data.get("name", "").strip()
     # Accept both "path" (new) and "vault_path" (legacy) field names
     project_path = data.get("path", "").strip() or data.get("vault_path", "").strip()
+    vault = data.get("vault", "").strip() or "vault"
+    description = data.get("description", "").strip()
+    architecture = data.get("architecture", "").strip()
+    ws_type = data.get("type", "local").strip()
 
-    ok, err = add_workspace(name, project_path)
+    ok, err = add_workspace(
+        name,
+        project_path,
+        vault=vault,
+        description=description,
+        architecture=architecture,
+        type=ws_type,
+    )
     if not ok:
         return jsonify({"error": err}), 400
     return jsonify({"ok": True, "workspace": name})
@@ -241,8 +260,9 @@ def auth_status():
 
 
 @bp.route("/api/auth/key")
+@require_api_key
 def auth_key():
-    """Return the full API key — for copy-paste into .fathom.json during setup."""
+    """Return the full API key — requires authentication. Use the dashboard or server first-run output."""
     return jsonify({"api_key": get_api_key()})
 
 
