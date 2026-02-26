@@ -57,7 +57,7 @@ describe("parseFrontmatter", () => {
   });
 
   it("returns empty fm for unclosed frontmatter", () => {
-    const { fm, body } = parseFrontmatter("---\ntitle: Oops\nno closing");
+    const { fm } = parseFrontmatter("---\ntitle: Oops\nno closing");
     assert.deepEqual(fm, {});
   });
 });

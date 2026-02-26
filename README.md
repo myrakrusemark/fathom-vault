@@ -1,71 +1,120 @@
-# Fathom Vault
+# Fathom Server
 
-A multi-workspace markdown vault system with browser UI, MCP server, full-text search, activity tracking, and agent coordination. Built for AI agents that need persistent, searchable knowledge stores — but works great for humans too.
+Dashboard, API, and background services for [Fathom](https://hifathom.com) — a multi-workspace vault system with search, activity tracking, rooms, and agent coordination.
 
-## What it does
+Runs once, serves all workspaces. Per-workspace MCP tools are provided by [`fathom-mcp`](./fathom-mcp/).
 
-- **Vault file operations** — read, write, append markdown files with YAML frontmatter validation
-- **Multi-workspace** — multiple isolated vaults, each with its own settings, search index, and agent session
-- **Search** — keyword (BM25), semantic (vector), and hybrid search via [qmd](https://github.com/nicoblu/qmd)
-- **Activity tracking** — SQLite-backed file access history with heat decay scoring
-- **Agent coordination** — send messages between workspace Claude sessions via tmux
-- **Browser UI** — React SPA with file browser, editor, active files panel, heat indicators, and WebSocket terminal
-- **Background services** — vault indexing, identity crystal regeneration, ping scheduling, persistent session management
+## Architecture
+
+```
+┌──────────────────────────────────────────────┐
+│  fathom-server (Python)                      │
+│                                              │
+│  React Dashboard ─── REST API ─── Services   │
+│  (vault browser,    (Flask,      (indexer,   │
+│   terminal,          :4243)       pings,     │
+│   activation,                     crystal,   │
+│   rooms)                          access)    │
+│                                              │
+│  Workspace Registry + API Key Auth           │
+└──────────────────┬───────────────────────────┘
+                   │ HTTP localhost:4243
+      ┌────────────┼──────────────┐
+      ▼            ▼              ▼
+┌──────────┐ ┌──────────┐  ┌──────────┐
+│ ws: main │ │ ws: ns   │  │ ws: apps │
+│ npx      │ │ npx      │  │ npx      │
+│ fathom-  │ │ fathom-  │  │ fathom-  │
+│ mcp      │ │ mcp      │  │ mcp      │
+└──────────┘ └──────────┘  └──────────┘
+ Claude inst. Claude inst.  Claude inst.
+```
 
 ## Requirements
 
 - Python 3.11+
-- Node.js 18+
+- Node.js 18+ (for frontend build and [qmd](https://github.com/nicoblu/qmd))
 - [qmd](https://github.com/nicoblu/qmd) — `npm install -g @tobilu/qmd` (powers search)
 - tmux (for agent sessions and inter-workspace messaging)
 
 ## Install
 
+### Option A — pip (recommended)
+
+```bash
+pip install fathom-server
+fathom-server                # Start on :4243
+fathom-server --port 8080    # Custom port
+```
+
+### Option B — from source
+
 ```bash
 git clone https://github.com/myrakrusemark/fathom-vault.git
 cd fathom-vault
 
-# Python dependencies
 pip install -r requirements.txt
 
-# MCP server dependencies
-cd mcp && npm install && cd ..
-
-# Frontend
 cd frontend && npm install && npm run build && cd ..
+
+python app.py
 ```
+
+On first run the server generates an API key, printed to the console. Copy it — you'll need it when running `npx fathom-mcp init` in your project directories.
 
 ## Quick start — new workspace
 
-A workspace is a project directory with a `vault/` subdirectory. To set one up:
-
 ```bash
-# 1. Create the vault directory in your project
-mkdir -p /path/to/your-project/vault
-
-# 2. Register it as a workspace
-# (via the browser UI at Settings > Workspaces, or manually:)
+# In your project directory:
+npx fathom-mcp init
 ```
 
-Edit `~/.config/fathom-vault/settings.json`:
+The init wizard prompts for server URL and API key, creates `.fathom.json`, registers the workspace with the server, and sets up Claude Code hooks. See [`fathom-mcp` README](./fathom-mcp/README.md) for details.
+
+You can also add workspaces via the dashboard at Settings > Workspaces.
+
+## Run
+
+```bash
+# pip install
+fathom-server
+
+# or from source
+python app.py
+```
+
+Opens at `http://localhost:4243`. On startup the server:
+
+1. Generates an API key if none exists (stored in `data/server.json`)
+2. Loads all registered workspaces
+3. Starts persistent Claude sessions for each workspace (if configured)
+4. Configures ping schedulers, background indexer, and crystal regeneration
+
+### Configuration
+
+**Environment variables** (override defaults):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FATHOM_PORT` | `4243` | Server port |
+| `FATHOM_VAULT_DIR` | (none) | Default vault directory |
+
+**Server config** — `data/server.json` (auto-generated):
 
 ```json
 {
-  "workspaces": {
-    "my-project": "/path/to/your-project"
-  },
-  "default_workspace": "my-project"
+  "api_key": "fv_...",
+  "auth_enabled": true
 }
 ```
 
-Per-workspace settings live at `<project>/.fathom/settings.json` and are auto-created with defaults on first use:
+**Per-workspace config** — `<project>/.fathom/settings.json` (auto-created with defaults):
 
 ```json
 {
   "background_index": {
     "enabled": true,
-    "interval_minutes": 15,
-    "excluded_dirs": []
+    "interval_minutes": 15
   },
   "mcp": {
     "query_timeout_seconds": 120,
@@ -75,10 +124,7 @@ Per-workspace settings live at `<project>/.fathom/settings.json` and are auto-cr
   "activity": {
     "decay_halflife_days": 7,
     "recency_window_hours": 48,
-    "max_access_boost": 2.0,
-    "activity_sort_default": false,
-    "show_heat_indicator": true,
-    "excluded_from_scoring": ["daily"]
+    "show_heat_indicator": true
   },
   "crystal_regen": {
     "enabled": false,
@@ -90,147 +136,99 @@ Per-workspace settings live at `<project>/.fathom/settings.json` and are auto-cr
 }
 ```
 
-### Set up search indexing
+## API Authentication
 
-Each workspace needs a qmd collection pointing at its vault:
+All `/api/*` routes require a Bearer token when auth is enabled:
 
 ```bash
-qmd collection add /path/to/your-project/vault --name my-project
+curl -H "Authorization: Bearer fv_abc123..." http://localhost:4243/api/workspaces
 ```
 
-The collection name must match the workspace name. Rebuild the index:
+The dashboard is exempt (served from the same origin). Manage the API key from the dashboard at Settings > API Key & Auth.
+
+## HTTP API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/workspaces` | GET | List all workspaces with status |
+| `/api/workspaces` | POST | Register a workspace (name, path) |
+| `/api/workspaces/<name>` | DELETE | Unregister a workspace |
+| `/api/vault` | GET | Folder tree |
+| `/api/vault/folder/<path>` | GET | List files with metadata and previews |
+| `/api/vault/file/<path>` | GET/POST | Read/write files |
+| `/api/vault/append/<path>` | POST | Append to files |
+| `/api/search` | GET | Unified search (`?q=...&mode=bm25\|vector\|hybrid`) |
+| `/api/vault/links/<path>` | GET | Forward/backlinks |
+| `/api/vault/activity` | GET | Activity-scored file list |
+| `/api/room` | GET | List all rooms |
+| `/api/room/<name>` | GET/POST | Read/post room messages |
+| `/api/room/<name>/describe` | POST | Set room description |
+| `/api/settings` | GET/POST | Settings management |
+| `/api/auth/status` | GET | Auth status (masked key) |
+| `/api/auth/key` | GET | Full API key |
+| `/api/auth/key/regenerate` | POST | Generate new API key |
+| `/api/auth/toggle` | POST | Enable/disable auth |
+
+All endpoints accept `?workspace=` parameter. When omitted, they use the default workspace.
+
+## Search
+
+Requires qmd with a collection matching the workspace name:
 
 ```bash
+qmd collection add /path/to/project/vault --name my-project
 qmd index my-project
 ```
 
-The background indexer will keep it updated automatically if `background_index.enabled` is true.
+The background indexer keeps it updated automatically.
 
-## Run
+Three search modes:
+- **bm25** — keyword search, fast, exact-match oriented
+- **vector** — semantic/vector search, finds conceptually similar content
+- **hybrid** — BM25 + vector + reranking, most thorough (default)
 
-```bash
-python app.py
-```
+## Dashboard
 
-Opens at `http://localhost:4243`. On startup the server:
+The React SPA at `localhost:4243` provides:
 
-1. Loads all workspaces from `~/.config/fathom-vault/settings.json`
-2. Starts persistent Claude sessions for each workspace (if configured)
-3. Configures ping schedulers, background indexer, and crystal regeneration
+- **Vault browser** — file tree with previews, heat indicators, frontmatter display
+- **Editor** — markdown editing with frontmatter validation
+- **Terminal** — WebSocket-connected tmux terminal for workspace sessions
+- **Activation** — identity crystal viewer, ping scheduler controls
+- **Rooms** — shared chatrooms for cross-workspace communication
+- **Settings** — workspace management, API key management, per-workspace config
 
-## MCP server
-
-The MCP server gives AI agents direct vault access over stdio. Register it in your Claude/MCP config:
-
-```json
-{
-  "fathom-vault": {
-    "type": "stdio",
-    "command": "node",
-    "args": ["/path/to/fathom-vault/mcp/index.js"]
-  }
-}
-```
-
-All tools accept an optional `workspace` parameter. When omitted, they use the default workspace.
-
-### Tools — vault operations
-
-| Tool | Description |
-|------|-------------|
-| `fathom_vault_read` | Read a file — returns content, parsed frontmatter, body, size, modified time |
-| `fathom_vault_write` | Create or overwrite a file — validates YAML frontmatter if present |
-| `fathom_vault_append` | Append to a file — auto-creates with frontmatter if file doesn't exist |
-| `fathom_vault_list` | List all vault folders with file counts and last-modified signals |
-| `fathom_vault_folder` | List files in a folder with metadata, previews, tag filtering, sorting |
-| `fathom_vault_image` | Read an image as base64 (jpg, png, gif, webp, svg — max 5MB) |
-| `fathom_vault_write_asset` | Save a base64 image into a folder's `assets/` subdirectory |
-
-### Tools — search
-
-Requires qmd with a collection matching the workspace name.
-
-| Tool | Description |
-|------|-------------|
-| `fathom_vault_search` | BM25 keyword search — fast, exact-match oriented |
-| `fathom_vault_vsearch` | Semantic/vector search — finds conceptually similar content |
-| `fathom_vault_query` | Hybrid search — BM25 + vector + reranking, most thorough |
-
-### Tools — coordination
-
-| Tool | Description |
-|------|-------------|
-| `fathom_workspaces` | List all workspaces with running status, paths, tmux sessions |
-| `fathom_send` | Send a message to another workspace's Claude session via tmux |
-
-### Frontmatter schema
-
-Files with YAML frontmatter are validated on write. Required fields: `title` (string), `date` (string, YYYY-MM-DD). Optional: `tags` (list), `status` (draft/published/archived), `project` (string), `aliases` (list).
-
-## Architecture
+## Project structure
 
 ```
-fathom-vault/
-├── app.py                  # Flask server — routes, startup, service orchestration
-├── config.py               # Workspace resolution, path config
-├── requirements.txt        # Python deps: flask, flask-sock, pyyaml, python-dotenv
-├── pyproject.toml          # Ruff + pytest config
-├── mcp/
-│   ├── index.js            # MCP server (Node.js, stdio transport)
-│   └── package.json        # @modelcontextprotocol/sdk, better-sqlite3
+fathom-server/
+├── app.py                    # Flask entry — routes, startup, CLI entry point
+├── auth.py                   # API key generation + Bearer token middleware
+├── config.py                 # Port, paths — configurable via env vars
 ├── routes/
-│   ├── vault.py            # Vault CRUD, search, links, activity endpoints
-│   ├── settings.py         # Settings + workspace management API
-│   ├── activation.py       # Identity crystal + activation endpoints
-│   └── terminal.py         # WebSocket terminal (tmux integration)
+│   ├── vault.py              # Vault CRUD, search, links, activity
+│   ├── room.py               # Room chat endpoints
+│   ├── settings.py           # Settings, workspace CRUD, auth management
+│   ├── activation.py         # Identity crystal + activation
+│   └── terminal.py           # WebSocket terminal (tmux)
 ├── services/
-│   ├── access.py           # SQLite file access tracking + activity scoring
-│   ├── settings.py         # Global + per-workspace settings persistence
-│   ├── indexer.py           # Background vault indexing (qmd)
-│   ├── links.py            # Wikilink parsing + backlink resolution
-│   ├── crystallization.py  # Identity crystal synthesis
-│   ├── crystal_scheduler.py # Scheduled crystal regeneration
+│   ├── access.py             # SQLite activity tracking + scoring
+│   ├── settings.py           # Settings persistence
+│   ├── indexer.py             # Background vault indexing (qmd)
+│   ├── links.py              # Wikilink parsing + backlinks
+│   ├── crystallization.py    # Identity crystal synthesis
+│   ├── crystal_scheduler.py  # Scheduled crystal regen
 │   ├── persistent_session.py # Claude tmux session management
-│   ├── ping_scheduler.py   # Scheduled ping routines per workspace
-│   ├── memento.py          # Memento SaaS API integration
-│   ├── schema.py           # Shared schema definitions
-│   └── vault.py            # Core vault file operations
-├── frontend/               # React SPA (Vite, Tailwind, DaisyUI, xterm.js)
-├── data/                   # SQLite database (access.db)
-├── scripts/                # Hook scripts, utilities
-├── tests/                  # pytest suite
-└── vault/                  # Included example vault with documentation
+│   ├── ping_scheduler.py     # Scheduled ping routines
+│   ├── memento.py            # Memento SaaS API integration
+│   └── vault.py              # Core vault file operations
+├── frontend/                 # React SPA (Vite, Tailwind, DaisyUI, xterm.js)
+├── fathom-mcp/               # MCP tools npm package (see fathom-mcp/README.md)
+├── data/                     # Runtime data (SQLite, server.json)
+├── tests/                    # pytest suite
+├── pyproject.toml            # pip packaging + ruff/pytest config
+└── requirements.txt
 ```
-
-### Settings architecture
-
-Two-level settings — global registry plus per-workspace config:
-
-**Global** (`~/.config/fathom-vault/settings.json`) — workspace names and paths only. This is how fathom-vault discovers your workspaces.
-
-**Per-workspace** (`<project>/.fathom/settings.json`) — all operational config: indexing intervals, search settings, activity scoring parameters, crystal regen schedule, ping routines. Lives in the project directory so it travels with the project.
-
-### Activity tracking
-
-Every MCP read/write records the file in a SQLite database (`data/access.db`). The browser UI surfaces recently active files with heat indicators. Activity scores use exponential decay + recency weighting — configurable via per-workspace `activity` settings.
-
-### HTTP API
-
-The Flask server exposes REST endpoints under `/api/`:
-
-- `/api/vault` — folder tree
-- `/api/vault/folder/<path>` — list files with metadata
-- `/api/vault/file/<path>` — read/write files
-- `/api/vault/append/<path>` — append to files
-- `/api/vault/search` — full-text search
-- `/api/vault/links/<path>` — forward/backlinks
-- `/api/vault/resolve` — wikilink resolution
-- `/api/vault/raw/<path>` — serve images
-- `/api/vault/access` — record file opens
-- `/api/vault/activity` — activity-scored file list
-- `/api/settings` — get/post settings
-- `/api/settings/index-now` — trigger reindex
-- `/api/workspaces` — workspace CRUD
 
 ## Test
 
@@ -243,6 +241,22 @@ Pre-commit hooks run ruff (lint + format) and pytest:
 ```bash
 pre-commit install
 pre-commit run --all-files
+```
+
+## systemd service
+
+```ini
+[Unit]
+Description=Fathom Server
+After=network.target
+
+[Service]
+ExecStart=fathom-server
+Restart=always
+Environment=FATHOM_PORT=4243
+
+[Install]
+WantedBy=multi-user.target
 ```
 
 ## License

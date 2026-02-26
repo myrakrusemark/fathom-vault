@@ -62,7 +62,7 @@ export function parseFrontmatter(content) {
     const fm = {};
     let currentKey = null;
     for (const line of fmLines) {
-      const listMatch = line.match(/^  - (.+)$/);
+      const listMatch = line.match(/^[ ]{2}- (.+)$/);
       const kvMatch = line.match(/^(\w+):\s*(.*)$/);
       if (listMatch && currentKey) {
         fm[currentKey].push(listMatch[1].trim());
