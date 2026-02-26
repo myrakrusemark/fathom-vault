@@ -11,11 +11,20 @@ _NO_CRYSTAL = "No identity crystal found"
 
 
 def _load_memento_config(start_dir: str | None = None) -> dict:
-    """Walk upward from start_dir looking for .memento.json; return its contents or {}.
+    """Look for .memento.json in start_dir only (no parent walk).
 
-    If start_dir is None, walks from cwd (server fallback).
+    If start_dir is None, falls back to cwd walk for server-level operations.
     """
-    here = pathlib.Path(start_dir) if start_dir else pathlib.Path.cwd()
+    if start_dir:
+        candidate = pathlib.Path(start_dir) / ".memento.json"
+        if candidate.exists():
+            try:
+                return json.loads(candidate.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+    # Fallback: walk from cwd (server-level, no workspace context)
+    here = pathlib.Path.cwd()
     for directory in [here, *here.parents]:
         candidate = directory / ".memento.json"
         if candidate.exists():
