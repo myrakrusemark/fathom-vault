@@ -4,6 +4,11 @@
 # then updates qmd index/embeddings and triggers dashboard title/summary generation.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TOAST="$SCRIPT_DIR/hook-toast.sh"
+
+# Toast: progress via queue (one-shot)
+"$TOAST" fathom "⏳ Saving snapshot..." &>/dev/null
+
 INPUT=$(cat)
 
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path' | sed "s|~|$HOME|")
@@ -17,11 +22,13 @@ mkdir -p "$VAULT_DIR"
 
 # Only save if transcript exists and has content
 if [ ! -f "$TRANSCRIPT_PATH" ]; then
+    "$TOAST" fathom "✗ No transcript found" &>/dev/null
     exit 0
 fi
 
 LINE_COUNT=$(wc -l < "$TRANSCRIPT_PATH")
 if [ "$LINE_COUNT" -lt 2 ]; then
+    "$TOAST" fathom "✓ Skipped (tiny conversation)" &>/dev/null
     exit 0  # Skip tiny/empty conversations
 fi
 
@@ -40,12 +47,17 @@ fi
 # Check if file has content beyond frontmatter
 if [ ! -s "$OUTPUT_FILE" ]; then
     rm -f "$OUTPUT_FILE"
+    "$TOAST" fathom "✗ Snapshot empty" &>/dev/null
     exit 0
 fi
 
 # Report success
 FILENAME=$(basename "$OUTPUT_FILE")
 FILE_SIZE=$(du -h "$OUTPUT_FILE" | cut -f1)
+
+# Toast: done
+"$TOAST" fathom "✓ Snapshot saved (${FILE_SIZE})" &>/dev/null
+
 python3 -c "
 import json, sys
 msg = sys.argv[1]

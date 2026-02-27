@@ -15,6 +15,7 @@
 set -o pipefail
 
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+TOAST="$HOOK_DIR/hook-toast.sh"
 VSEARCH_CACHE="/tmp/fathom-vsearch-cache.json"
 VSEARCH_LOCK="/tmp/fathom-vsearch.lock"
 STALE_LOCK_SECONDS=180   # 3 minutes — lock older than this is considered stale
@@ -136,6 +137,9 @@ fi
 
 QUERY="${USER_MESSAGE:0:500}"
 
+# Toast: start retrieving
+"$TOAST" fathom "⏳ Retrieving docs..." &>/dev/null
+
 # --- Phase 1: Read cached vsearch results from previous query ---
 CACHED_VSEARCH=""
 if [ -f "$VSEARCH_CACHE" ]; then
@@ -211,6 +215,10 @@ if [ -n "$BM25_RESULTS" ] || [ -n "$CACHED_VSEARCH" ]; then
     fi
 
     SUMMARY="Fathom Vault: ${VAULT_COUNT} memories"
+
+    # Toast: result
+    "$TOAST" fathom "✓ ${VAULT_COUNT} docs recalled" &>/dev/null
+
     python3 -c "
 import json, sys
 summary = sys.argv[1]
@@ -223,6 +231,9 @@ print(json.dumps({
     }
 }))
 " "$SUMMARY" "$DETAIL_TEXT"
+else
+    # Toast: no results
+    "$TOAST" fathom "✓ No docs matched" &>/dev/null
 fi
 
 # --- Phase 3: Launch background vsearch for current query ---

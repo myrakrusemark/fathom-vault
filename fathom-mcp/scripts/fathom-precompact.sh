@@ -6,6 +6,9 @@
 
 set -euo pipefail
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+TOAST="$HOOK_DIR/hook-toast.sh"
+
 # Walk up to find .fathom.json
 find_config() {
   local dir="$PWD"
@@ -30,11 +33,15 @@ if [ "$HOOK_ENABLED" != "True" ] && [ "$HOOK_ENABLED" != "true" ]; then
   exit 0
 fi
 
+# Toast: progress via queue (one-shot)
+"$TOAST" fathom "⏳ Snapshotting vault..." &>/dev/null
+
 # Read PreCompact input (contains transcript_path)
 INPUT=$(cat)
 TRANSCRIPT_PATH=$(echo "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('transcript_path',''))" 2>/dev/null || echo "")
 
 if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
+  "$TOAST" fathom "✗ No transcript found" &>/dev/null
   exit 0
 fi
 
@@ -42,6 +49,7 @@ fi
 VAULT_FILES=$(grep -oP 'vault/[a-zA-Z0-9_/.-]+\.md' "$TRANSCRIPT_PATH" 2>/dev/null | sort -u || echo "")
 
 if [ -z "$VAULT_FILES" ]; then
+  "$TOAST" fathom "✓ No vault files to record" &>/dev/null
   exit 0
 fi
 
@@ -59,6 +67,10 @@ done
 
 # Output summary
 FILE_COUNT=$(echo "$VAULT_FILES" | wc -l)
+
+# Toast: done
+"$TOAST" fathom "✓ Stored ${FILE_COUNT} vault file(s)" &>/dev/null
+
 python3 -c "
 import json, sys
 result = {

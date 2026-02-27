@@ -1,6 +1,6 @@
 {
   "name": "fathom-mcp",
-  "version": "0.4.2",
+  "version": "0.4.4",
   "description": "MCP server for Fathom — vault operations, search, rooms, and cross-workspace communication",
   "type": "module",
   "bin": {
