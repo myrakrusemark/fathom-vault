@@ -5,7 +5,9 @@ import '@xterm/xterm/css/xterm.css'
 import { useWorkspace, wsUrl } from '../WorkspaceContext.jsx'
 
 export default function TerminalPanel({ onClose, filePath }) {
-  const { activeWorkspace } = useWorkspace()
+  const { activeWorkspace, workspaces } = useWorkspace()
+  const wsEntry = workspaces[activeWorkspace]
+  const isHuman = (typeof wsEntry === 'object' ? wsEntry?.type : null) === 'human'
   const containerRef = useRef(null)
   const wsRef = useRef(null)
   const resizeTimer = useRef(null)
@@ -139,15 +141,17 @@ export default function TerminalPanel({ onClose, filePath }) {
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-base-300 shrink-0 bg-base-200">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-primary">Claude Agent</span>
-          <button
-            onClick={handleRestart}
-            disabled={restarting}
-            className="btn btn-xs btn-ghost text-neutral-content opacity-60 hover:opacity-100"
-            title="Kill and restart session with --continue"
-          >
-            {restarting ? 'Restarting...' : 'Restart'}
-          </button>
+          <span className="text-sm font-semibold text-primary">{isHuman ? 'Inbox' : 'Claude Agent'}</span>
+          {!isHuman && (
+            <button
+              onClick={handleRestart}
+              disabled={restarting}
+              className="btn btn-xs btn-ghost text-neutral-content opacity-60 hover:opacity-100"
+              title="Kill and restart session with --continue"
+            >
+              {restarting ? 'Restarting...' : 'Restart'}
+            </button>
+          )}
         </div>
         <button
           onClick={onClose}

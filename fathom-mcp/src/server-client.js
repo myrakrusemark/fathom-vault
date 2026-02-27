@@ -82,9 +82,9 @@ export function createClient(config) {
     });
   }
 
-  async function roomRead(room, hours) {
+  async function roomRead(room, minutes, start) {
     return request("GET", `/api/room/${encodeURIComponent(room)}`, {
-      params: { hours },
+      params: { minutes, start },
     });
   }
 

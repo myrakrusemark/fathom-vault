@@ -124,6 +124,25 @@ def update_settings():
             sess_settings["bypass_permissions"] = bool(sess["bypass_permissions"])
         settings["session"] = sess_settings
 
+    # --- rooms fields (global) ---
+    if "rooms" in data:
+        rooms = data["rooms"]
+        if not isinstance(rooms, dict):
+            return jsonify({"error": "rooms must be an object"}), 400
+        rooms_settings = settings.get("rooms", {})
+        if "retention_days" in rooms:
+            rd = rooms["retention_days"]
+            if rd is not None and (
+                not isinstance(rd, int) or isinstance(rd, bool) or not (1 <= rd <= 60)
+            ):
+                return jsonify(
+                    {
+                        "error": "retention_days must be an integer between 1 and 60, or null for unlimited"
+                    }
+                ), 400
+            rooms_settings["retention_days"] = rd
+        settings["rooms"] = rooms_settings
+
     # --- workspace fields (global) ---
     if "workspaces" in data:
         ws = data["workspaces"]

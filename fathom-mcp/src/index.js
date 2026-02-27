@@ -220,13 +220,17 @@ const tools = [
   {
     name: "fathom_room_read",
     description:
-      "Read recent messages from a shared room. Returns messages from the last N hours " +
-      "(default 24). Use during orient phase to catch up on cross-workspace conversation.",
+      "Read recent messages from a shared room. Returns messages within a time window anchored " +
+      "to the latest message. Default: 60 minutes before the latest message. Use start to look " +
+      "further back. Example: minutes=15, start=120 returns 15 minutes of conversation starting " +
+      "2 hours before the latest message. Response includes window metadata with has_older flag " +
+      "for pseudo-pagination.",
     inputSchema: {
       type: "object",
       properties: {
         room: { type: "string", description: "Room name to read from" },
-        hours: { type: "number", description: "How many hours of history to return. Default: 24." },
+        minutes: { type: "number", description: "Window duration in minutes. Default: 60." },
+        start: { type: "number", description: "Offset in minutes from the latest message. Default: 0 (window ends at latest message). Set to 120 to look back starting 2 hours before the latest message." },
       },
       required: ["room"],
     },
@@ -412,7 +416,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       result = await client.roomPost(args.room, args.message, config.workspace);
       break;
     case "fathom_room_read":
-      result = await client.roomRead(args.room, args.hours);
+      result = await client.roomRead(args.room, args.minutes, args.start);
       break;
     case "fathom_room_list":
       result = await client.roomList();

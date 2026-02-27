@@ -16,6 +16,7 @@ from flask_sock import Sock
 from services.persistent_session import (
     _AGENT_COMMANDS,
     _get_agent,
+    _is_human_workspace,
     _session_name,
     _work_dir,
     ensure_running,
@@ -63,22 +64,30 @@ def terminal(ws):
             termios.TIOCSWINSZ,
             struct.pack("HHHH", init_rows, init_cols, 0, 0),
         )
-        ws_settings = load_workspace_settings(workspace)
-        bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
 
-        agent_id = _get_agent(workspace)
-        agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
+        if _is_human_workspace(workspace):
+            # Human workspaces — attach to bash session (ensure_running
+            # handles inbox setup + tail -f)
+            ensure_running(workspace)
+            cmd = ["tmux", "new-session", "-A", "-s", tmux_session]
+        else:
+            ws_settings = load_workspace_settings(workspace)
+            bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
 
-        cmd = [
-            "tmux",
-            "new-session",
-            "-A",
-            "-s",
-            tmux_session,
-            *agent["command"],
-        ]
-        if bypass and agent_id == "claude-code":
-            cmd += ["--permission-mode", "bypassPermissions"]
+            agent_id = _get_agent(workspace)
+            agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
+
+            cmd = [
+                "tmux",
+                "new-session",
+                "-A",
+                "-s",
+                tmux_session,
+                *agent["command"],
+            ]
+            if bypass and agent_id == "claude-code":
+                cmd += ["--permission-mode", "bypassPermissions"]
+
         subprocess.Popen(
             cmd,
             stdin=slave_fd,

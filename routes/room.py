@@ -8,12 +8,18 @@ import subprocess
 import tempfile
 import threading
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
-from services.persistent_session import _AGENT_COMMANDS, _get_agent
-from services.settings import load_workspace_settings
+from services.persistent_session import (
+    _AGENT_COMMANDS,
+    _get_agent,
+    _inbox_path,
+    _is_human_workspace,
+)
+from services.settings import load_global_settings, load_workspace_settings
 
 bp = Blueprint("room", __name__)
 
@@ -52,6 +58,27 @@ def _conn() -> sqlite3.Connection:
     con.execute(_CREATE_METADATA)
     con.commit()
     return con
+
+
+def _get_retention_days():
+    """Read rooms.retention_days from global settings. Returns int or None."""
+    gs = load_global_settings()
+    return gs.get("rooms", {}).get("retention_days")
+
+
+def _prune_expired(con, retention_days):
+    """Delete messages older than retention_days. Returns count deleted."""
+    if not retention_days:
+        return 0
+    cutoff = time.time() - (retention_days * 86400)
+    cur = con.execute("DELETE FROM room_messages WHERE timestamp < ?", (cutoff,))
+    con.commit()
+    return cur.rowcount
+
+
+def _ts_to_iso(ts):
+    """Convert unix timestamp to ISO 8601 UTC string."""
+    return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
 
 _SETTINGS_PATH = Path.home() / ".config" / "fathom-vault" / "settings.json"
@@ -128,6 +155,19 @@ def _inject_to_workspace(workspace: str, formatted: str) -> dict:
     if not ws_entry:
         return {"error": f'Unknown workspace: "{workspace}"', "workspace": workspace}
     project_path = ws_entry.get("path") if isinstance(ws_entry, dict) else ws_entry
+
+    # Human workspaces — append to inbox file (no tmux agent)
+    if _is_human_workspace(workspace):
+        inbox = _inbox_path(workspace)
+        inbox.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        header = f"--- {timestamp} ---"
+        try:
+            with open(inbox, "a") as f:
+                f.write(f"\n{header}\n{formatted}\n")
+            return {"ok": True, "delivered": True, "workspace": workspace}
+        except Exception as e:
+            return {"error": str(e), "workspace": workspace}
 
     session_name = f"{workspace}_fathom-session"
     pane_file = Path.home() / ".config" / "fathom" / f"{workspace}-pane-id"
@@ -229,20 +269,43 @@ def _inject_to_workspace(workspace: str, formatted: str) -> dict:
 @bp.route("/api/room/list")
 def list_rooms():
     """List all rooms with message count, last activity, last sender, and description."""
+    retention_days = _get_retention_days()
     con = _conn()
-    rows = con.execute("""
-        SELECT
-            room,
-            COUNT(*) as message_count,
-            MAX(timestamp) as last_activity,
-            (SELECT sender FROM room_messages r2
-             WHERE r2.room = r1.room ORDER BY timestamp DESC LIMIT 1) as last_sender,
-            COALESCE((SELECT description FROM room_metadata m
-             WHERE m.room = r1.room), '') as description
-        FROM room_messages r1
-        GROUP BY room
-        ORDER BY last_activity DESC
-    """).fetchall()
+
+    if retention_days:
+        cutoff = time.time() - (retention_days * 86400)
+        rows = con.execute(
+            """
+            SELECT
+                room,
+                COUNT(*) as message_count,
+                MAX(timestamp) as last_activity,
+                (SELECT sender FROM room_messages r2
+                 WHERE r2.room = r1.room AND r2.timestamp > ?
+                 ORDER BY timestamp DESC LIMIT 1) as last_sender,
+                COALESCE((SELECT description FROM room_metadata m
+                 WHERE m.room = r1.room), '') as description
+            FROM room_messages r1
+            WHERE timestamp > ?
+            GROUP BY room
+            ORDER BY last_activity DESC
+        """,
+            (cutoff, cutoff),
+        ).fetchall()
+    else:
+        rows = con.execute("""
+            SELECT
+                room,
+                COUNT(*) as message_count,
+                MAX(timestamp) as last_activity,
+                (SELECT sender FROM room_messages r2
+                 WHERE r2.room = r1.room ORDER BY timestamp DESC LIMIT 1) as last_sender,
+                COALESCE((SELECT description FROM room_metadata m
+                 WHERE m.room = r1.room), '') as description
+            FROM room_messages r1
+            GROUP BY room
+            ORDER BY last_activity DESC
+        """).fetchall()
     con.close()
 
     return jsonify(
@@ -263,16 +326,79 @@ def list_rooms():
 
 @bp.route("/api/room/<room_name>")
 def read_room(room_name):
-    """Read messages from a room within a time window (default 24h)."""
-    hours = float(request.args.get("hours", 24))
-    cutoff = time.time() - (hours * 3600)
+    """Read messages from a room within a time window anchored to the latest message.
 
+    Params:
+        minutes: Window duration in minutes (default 60).
+        start: Offset in minutes from the latest message (default 0).
+        hours: Legacy param — converted to minutes if minutes not provided.
+    """
+    # Parse params with backward compat
+    raw_minutes = request.args.get("minutes")
+    raw_hours = request.args.get("hours")
+    start = float(request.args.get("start", 0))
+
+    if raw_minutes is not None:
+        minutes = float(raw_minutes)
+    elif raw_hours is not None:
+        minutes = float(raw_hours) * 60
+    else:
+        minutes = 60
+
+    retention_days = _get_retention_days()
     con = _conn()
+
+    # Find the latest message timestamp as anchor
+    row = con.execute(
+        "SELECT MAX(timestamp) as latest FROM room_messages WHERE room = ?",
+        (room_name,),
+    ).fetchone()
+    latest_ts = row["latest"] if row else None
+
+    if latest_ts is None:
+        con.close()
+        return jsonify(
+            {
+                "room": room_name,
+                "messages": [],
+                "count": 0,
+                "window": {
+                    "start": None,
+                    "end": None,
+                    "latest_message": None,
+                    "has_older": False,
+                    "retention_limited": False,
+                },
+            }
+        )
+
+    # Window calculation relative to latest message
+    anchor = latest_ts
+    window_end = anchor - (start * 60)
+    window_start = window_end - (minutes * 60)
+
+    # Clamp to retention boundary
+    retention_limited = False
+    if retention_days:
+        retention_boundary = time.time() - (retention_days * 86400)
+        if window_start < retention_boundary:
+            window_start = retention_boundary
+            retention_limited = True
+
+    # Query messages in window
     rows = con.execute(
         "SELECT id, sender, message, timestamp FROM room_messages "
-        "WHERE room = ? AND timestamp > ? ORDER BY timestamp ASC",
-        (room_name, cutoff),
+        "WHERE room = ? AND timestamp > ? AND timestamp <= ? ORDER BY timestamp ASC",
+        (room_name, window_start, window_end),
     ).fetchall()
+
+    # Check if there are older messages before window_start
+    older = con.execute(
+        "SELECT 1 FROM room_messages WHERE room = ? AND timestamp <= ? LIMIT 1",
+        (room_name, window_start),
+    ).fetchone()
+    has_older = older is not None
+
     con.close()
 
     return jsonify(
@@ -284,10 +410,18 @@ def read_room(room_name):
                     "sender": r["sender"],
                     "message": r["message"],
                     "timestamp": r["timestamp"],
+                    "datetime": _ts_to_iso(r["timestamp"]),
                 }
                 for r in rows
             ],
             "count": len(rows),
+            "window": {
+                "start": _ts_to_iso(window_start),
+                "end": _ts_to_iso(window_end),
+                "latest_message": _ts_to_iso(latest_ts),
+                "has_older": has_older,
+                "retention_limited": retention_limited,
+            },
         }
     )
 
@@ -347,6 +481,10 @@ def post_to_room(room_name):
     )
     msg_id = cur.lastrowid
     con.commit()
+
+    # Prune expired messages
+    retention_days = _get_retention_days()
+    pruned = _prune_expired(con, retention_days)
     con.close()
 
     result = {
@@ -356,6 +494,8 @@ def post_to_room(room_name):
         "sender": sender,
         "timestamp": timestamp,
     }
+    if pruned > 0:
+        result["pruned"] = pruned
 
     # Phase 2: Parse mentions and inject into targeted workspaces
     tokens = _parse_mentions(message)

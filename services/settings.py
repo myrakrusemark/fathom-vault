@@ -147,8 +147,20 @@ def _sanitize_description(text: str) -> str:
 # ── Global settings ──────────────────────────────────────────────────────────
 
 
+_ROOMS_DEFAULTS = {"retention_days": 7}
+
+
+def _validate_retention_days(val):
+    """Validate and normalize retention_days: int 1-60 or None for unlimited."""
+    if val is None:
+        return None
+    if isinstance(val, int) and 1 <= val <= 60:
+        return val
+    return _ROOMS_DEFAULTS["retention_days"]
+
+
 def load_global_settings() -> dict:
-    """Load ~/.config/fathom-vault/settings.json — workspaces registry only."""
+    """Load ~/.config/fathom-vault/settings.json — workspaces + rooms config."""
     try:
         with open(_SETTINGS_FILE) as f:
             saved = json.load(f)
@@ -167,16 +179,28 @@ def load_global_settings() -> dict:
         if not default_ws or default_ws not in workspaces:
             default_ws = next(iter(workspaces))
 
-    return {"workspaces": workspaces, "default_workspace": default_ws}
+    # Rooms config — global, cross-workspace
+    saved_rooms = saved.get("rooms", {})
+    if not isinstance(saved_rooms, dict):
+        saved_rooms = {}
+    rooms = {
+        "retention_days": _validate_retention_days(
+            saved_rooms.get("retention_days", _ROOMS_DEFAULTS["retention_days"])
+        ),
+    }
+
+    return {"workspaces": workspaces, "default_workspace": default_ws, "rooms": rooms}
 
 
 def save_global_settings(settings: dict) -> None:
-    """Save global settings — workspaces + default only."""
+    """Save global settings — workspaces, default, and rooms."""
     os.makedirs(_SETTINGS_DIR, exist_ok=True)
     data = {
         "workspaces": settings.get("workspaces", {}),
         "default_workspace": settings.get("default_workspace"),
     }
+    if "rooms" in settings:
+        data["rooms"] = settings["rooms"]
     with open(_SETTINGS_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
@@ -335,6 +359,7 @@ def load_settings(workspace: str = None) -> dict:
     merged = {**ws_s}
     merged["workspaces"] = gs["workspaces"]
     merged["default_workspace"] = gs["default_workspace"]
+    merged["rooms"] = gs["rooms"]
     return merged
 
 
@@ -350,6 +375,9 @@ def save_settings(settings: dict, workspace: str = None) -> None:
         changed_global = True
     if "default_workspace" in settings:
         gs["default_workspace"] = settings["default_workspace"]
+        changed_global = True
+    if "rooms" in settings:
+        gs["rooms"] = settings["rooms"]
         changed_global = True
     if changed_global:
         save_global_settings(gs)

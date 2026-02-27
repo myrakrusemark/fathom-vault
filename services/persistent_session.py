@@ -46,6 +46,19 @@ def _get_agent(workspace: str = None) -> str:
     return agents[0] if agents else "claude-code"
 
 
+def _is_human_workspace(workspace: str = None) -> bool:
+    """Return True if the workspace type is 'human'."""
+    settings = load_global_settings()
+    ws_entry = settings.get("workspaces", {}).get(workspace or "fathom", {})
+    return ws_entry.get("type", "local") == "human"
+
+
+def _inbox_path(workspace: str = None) -> Path:
+    """Return the inbox log file path for a human workspace."""
+    ws = workspace or "fathom"
+    return _FATHOM_CONFIG_DIR / f"{ws}-inbox.log"
+
+
 _lock = threading.Lock()
 
 
@@ -115,14 +128,41 @@ def ensure_running(workspace: str = None) -> bool:
             return True
         session = _session_name(workspace)
         cwd = _work_dir(workspace)
+
+        env = os.environ.copy()
+        env.pop("CLAUDECODE", None)
+
+        # Human workspaces get bash + tail -f on inbox — no AI agent
+        if _is_human_workspace(workspace):
+            inbox = _inbox_path(workspace)
+            inbox.parent.mkdir(parents=True, exist_ok=True)
+            inbox.touch()
+            try:
+                subprocess.Popen(
+                    ["tmux", "new-session", "-d", "-s", session, "bash"],
+                    env=env,
+                    cwd=cwd,
+                )
+                time.sleep(1)
+                if is_running(workspace):
+                    _save_pane_id(workspace)
+                    pane = _main_pane(workspace)
+                    subprocess.run(
+                        ["tmux", "send-keys", "-t", pane, f"tail -f {inbox}", "Enter"],
+                        capture_output=True,
+                        env=env,
+                    )
+                    return True
+                return False
+            except Exception:
+                return False
+
         ws_settings = load_workspace_settings(workspace)
         bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
 
         agent_id = _get_agent(workspace)
         agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
 
-        env = os.environ.copy()
-        env.pop("CLAUDECODE", None)
         try:
             cmd = [
                 "tmux",
@@ -148,11 +188,31 @@ def ensure_running(workspace: str = None) -> bool:
             return False
 
 
-def inject(text: str, workspace: str = None) -> bool:
+def inject(text: str, workspace: str = None, sender: str = None) -> bool:
     """Send text to a workspace's session as a new user message, then press Enter.
+
+    For human workspaces, appends to the inbox log file instead of sending
+    keystrokes to tmux. The ``sender`` parameter is optional and adds a
+    "from: <sender>" tag to the inbox entry.
 
     Returns True if the send succeeded. Does not wait for or capture the response.
     """
+    # Human workspaces — append to inbox file (tail -f picks it up live)
+    if _is_human_workspace(workspace):
+        inbox = _inbox_path(workspace)
+        inbox.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        header = f"--- {timestamp}"
+        if sender:
+            header += f" | from: {sender}"
+        header += " ---"
+        try:
+            with open(inbox, "a") as f:
+                f.write(f"\n{header}\n{text}\n")
+            return True
+        except Exception:
+            return False
+
     if not is_running(workspace):
         started = ensure_running(workspace)
         if not started:
@@ -191,14 +251,40 @@ def restart(workspace: str = None) -> bool:
             )
             time.sleep(1)
 
+        env = os.environ.copy()
+        env.pop("CLAUDECODE", None)
+
+        # Human workspaces — restart bash + tail -f (same as ensure_running)
+        if _is_human_workspace(workspace):
+            inbox = _inbox_path(workspace)
+            inbox.parent.mkdir(parents=True, exist_ok=True)
+            inbox.touch()
+            try:
+                subprocess.Popen(
+                    ["tmux", "new-session", "-d", "-s", session, "bash"],
+                    env=env,
+                    cwd=cwd,
+                )
+                time.sleep(1)
+                if is_running(workspace):
+                    _save_pane_id(workspace)
+                    pane = _main_pane(workspace)
+                    subprocess.run(
+                        ["tmux", "send-keys", "-t", pane, f"tail -f {inbox}", "Enter"],
+                        capture_output=True,
+                        env=env,
+                    )
+                    return True
+                return False
+            except Exception:
+                return False
+
         ws_settings = load_workspace_settings(workspace)
         bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
 
         agent_id = _get_agent(workspace)
         agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
 
-        env = os.environ.copy()
-        env.pop("CLAUDECODE", None)
         try:
             # Build agent command with restart flag if supported
             agent_cmd = list(agent["command"])

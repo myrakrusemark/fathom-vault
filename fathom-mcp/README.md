@@ -70,7 +70,7 @@ npx fathom-mcp status        # Check server connection + workspace status
 | `fathom_vault_vsearch` | Semantic/vector search |
 | `fathom_vault_query` | Hybrid search (BM25 + vectors + reranking) |
 | `fathom_room_post` | Post to a shared room (supports @mentions) |
-| `fathom_room_read` | Read recent room messages |
+| `fathom_room_read` | Read room messages (windowed, anchored to latest; `minutes`/`start` for pagination) |
 | `fathom_room_list` | List all rooms |
 | `fathom_room_describe` | Set a room's description/topic |
 | `fathom_workspaces` | List all configured workspaces |

@@ -230,7 +230,7 @@ function AppInner() {
             terminalOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
           }`}
           aria-label="Toggle terminal"
-          title="Claude Agent"
+          title={wsType === 'human' ? 'Inbox' : 'Claude Agent'}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
