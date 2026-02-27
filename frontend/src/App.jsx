@@ -40,9 +40,13 @@ function AppInner() {
   const [showHeatDots, setShowHeatDots] = useState(true)
   const [disabledToast, setDisabledToast] = useState(null)
 
-  // Derive workspace type for active workspace
+  // Derive workspace type and agent for active workspace
   const wsEntry = workspaces[activeWorkspace]
   const wsType = (typeof wsEntry === 'object' ? wsEntry?.type : null) || 'local'
+  const agentId = (typeof wsEntry === 'object' && wsEntry?.agents?.[0]) || 'claude-code'
+  const terminalLabel = wsType === 'human' ? 'Inbox' : ({
+    'claude-code': 'Claude', 'codex': 'Codex', 'gemini': 'Gemini', 'opencode': 'OpenCode',
+  }[agentId] || agentId)
   const disabledViews = wsType === 'human' ? ['memento', 'activation'] : []
 
   // Apply theme to DOM and persist
@@ -230,7 +234,7 @@ function AppInner() {
             terminalOpen ? 'text-primary' : 'text-neutral-content opacity-60 hover:opacity-100'
           }`}
           aria-label="Toggle terminal"
-          title={wsType === 'human' ? 'Inbox' : 'Claude Agent'}
+          title={terminalLabel}
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
             fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

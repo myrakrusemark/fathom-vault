@@ -190,7 +190,7 @@ The React SPA at `localhost:4243` provides:
 
 - **Vault browser** — file tree with previews, heat indicators, frontmatter display
 - **Editor** — markdown editing with frontmatter validation
-- **Terminal** — WebSocket-connected tmux terminal for workspace sessions
+- **Terminal** — WebSocket-connected tmux terminal for workspace sessions (Inbox mode for human workspaces)
 - **Activation** — identity crystal viewer, ping scheduler controls
 - **Rooms** — shared chatrooms for cross-workspace communication
 - **Settings** — workspace management, API key management, per-workspace config
@@ -215,7 +215,7 @@ fathom-server/
 │   ├── links.py              # Wikilink parsing + backlinks
 │   ├── crystallization.py    # Identity crystal synthesis
 │   ├── crystal_scheduler.py  # Scheduled crystal regen
-│   ├── persistent_session.py # Claude tmux session management
+│   ├── persistent_session.py # Workspace session management (agent or inbox)
 │   ├── ping_scheduler.py     # Scheduled ping routines
 │   ├── memento.py            # Memento SaaS API integration
 │   └── vault.py              # Core vault file operations

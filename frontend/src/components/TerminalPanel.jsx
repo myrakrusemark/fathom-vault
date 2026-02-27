@@ -8,6 +8,13 @@ export default function TerminalPanel({ onClose, filePath }) {
   const { activeWorkspace, workspaces } = useWorkspace()
   const wsEntry = workspaces[activeWorkspace]
   const isHuman = (typeof wsEntry === 'object' ? wsEntry?.type : null) === 'human'
+  const agentId = (typeof wsEntry === 'object' && wsEntry?.agents?.[0]) || 'claude-code'
+  const agentLabel = isHuman ? 'Inbox' : ({
+    'claude-code': 'Claude',
+    'codex': 'Codex',
+    'gemini': 'Gemini',
+    'opencode': 'OpenCode',
+  }[agentId] || agentId)
   const containerRef = useRef(null)
   const wsRef = useRef(null)
   const resizeTimer = useRef(null)
@@ -141,17 +148,15 @@ export default function TerminalPanel({ onClose, filePath }) {
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-base-300 shrink-0 bg-base-200">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-primary">{isHuman ? 'Inbox' : 'Claude Agent'}</span>
-          {!isHuman && (
-            <button
-              onClick={handleRestart}
-              disabled={restarting}
-              className="btn btn-xs btn-ghost text-neutral-content opacity-60 hover:opacity-100"
-              title="Kill and restart session with --continue"
-            >
-              {restarting ? 'Restarting...' : 'Restart'}
-            </button>
-          )}
+          <span className="text-sm font-semibold text-primary">{agentLabel}</span>
+          <button
+            onClick={handleRestart}
+            disabled={restarting}
+            className="btn btn-xs btn-ghost text-neutral-content opacity-60 hover:opacity-100"
+            title={isHuman ? 'Restart shell session' : 'Kill and restart session with --continue'}
+          >
+            {restarting ? 'Restarting...' : 'Restart'}
+          </button>
         </div>
         <button
           onClick={onClose}

@@ -21,7 +21,7 @@ A local markdown vault viewer, editor, and MCP server. Browse and edit your vaul
 - **MCP server** — AI agents read, write, and append vault files via `fathom_vault_*` tools
 - **Activity tracking** — every MCP read/write scores files by recency and frequency; warm files surface in the Active Files panel
 - **Search** — BM25 keyword + vector semantic search via `qmd`
-- **Terminal panel** — Claude Agent panel in the browser, running in a persistent tmux session
+- **Terminal panel** — Claude Agent panel (or Inbox for human workspaces) in the browser, running in a persistent tmux session
 
 ---
 
@@ -29,7 +29,7 @@ A local markdown vault viewer, editor, and MCP server. Browse and edit your vaul
 
 - [[mcp-tools]] — all `fathom_vault_*` MCP tools, parameters, return shapes
 - [[activity-tracking]] — how file heat scores work, the Active Files panel, settings
-- [[terminal-panel]] — Claude Agent panel, session persistence, UUID routing
+- [[terminal-panel]] — Claude Agent / Inbox panel, session persistence, UUID routing
 - [[settings]] — all configurable settings and what they control
 - [[running]] — install, start, and keep the server running
 
