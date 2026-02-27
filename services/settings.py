@@ -72,6 +72,9 @@ _WORKSPACE_DEFAULTS = {
         "enabled": False,
         "interval_days": 7,
     },
+    "session": {
+        "bypass_permissions": False,
+    },
     "ping": {
         "routines": [_DEFAULT_ROUTINE],
     },
@@ -105,15 +108,15 @@ def new_routine_id() -> str:
 def _normalize_workspace_entry(entry) -> dict:
     """Normalize a workspace entry to dict format.
 
-    Handles both legacy string entries ("path") and rich dict entries
-    ({"path": ..., "vault": ..., "description": ...}).
+    Handles both string entries ("path") and rich dict entries
+    ({"path": ..., "vault": ..., "description": ..., "agents": [...]}).
     """
     if isinstance(entry, str):
         return {
             "path": entry,
             "vault": "vault",
             "description": "",
-            "architecture": "",
+            "agents": [],
             "type": "local",
         }
     if isinstance(entry, dict):
@@ -121,14 +124,14 @@ def _normalize_workspace_entry(entry) -> dict:
             "path": entry.get("path", ""),
             "vault": entry.get("vault", "vault"),
             "description": entry.get("description", ""),
-            "architecture": entry.get("architecture", ""),
+            "agents": entry.get("agents", []),
             "type": entry.get("type", "local"),
         }
     return {
         "path": str(entry),
         "vault": "vault",
         "description": "",
-        "architecture": "",
+        "agents": [],
         "type": "local",
     }
 
@@ -368,7 +371,7 @@ def add_workspace(
     project_path: str,
     vault: str = "vault",
     description: str = "",
-    architecture: str = "",
+    agents: list | None = None,
     type: str = "local",
 ) -> tuple[bool, str]:
     """Add or update a workspace. Path is the project root (must contain vault/ subdir).
@@ -391,6 +394,8 @@ def add_workspace(
     if not os.path.isdir(vault_dir):
         return False, f"No {vault_subdir}/ subdirectory found at: {vault_dir}"
 
+    agents_list = agents or []
+
     gs = load_global_settings()
     existing = gs["workspaces"].get(name)
     if existing:
@@ -402,8 +407,8 @@ def add_workspace(
             existing["vault"] = vault_subdir
         if description:
             existing["description"] = _sanitize_description(description)
-        if architecture:
-            existing["architecture"] = architecture
+        if agents_list:
+            existing["agents"] = agents_list
         if type:
             existing["type"] = type
         gs["workspaces"][name] = existing
@@ -412,7 +417,7 @@ def add_workspace(
             "path": project_path,
             "vault": vault_subdir,
             "description": _sanitize_description(description),
-            "architecture": architecture,
+            "agents": agents_list,
             "type": type,
         }
 

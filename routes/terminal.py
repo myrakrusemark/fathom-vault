@@ -13,7 +13,14 @@ from urllib.parse import parse_qs
 
 from flask_sock import Sock
 
-from services.persistent_session import _CLAUDE, _session_name, _work_dir, ensure_running
+from services.persistent_session import (
+    _AGENT_COMMANDS,
+    _get_agent,
+    _session_name,
+    _work_dir,
+    ensure_running,
+)
+from services.settings import load_workspace_settings
 
 sock = Sock()
 
@@ -56,19 +63,24 @@ def terminal(ws):
             termios.TIOCSWINSZ,
             struct.pack("HHHH", init_rows, init_cols, 0, 0),
         )
+        ws_settings = load_workspace_settings(workspace)
+        bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
+
+        agent_id = _get_agent(workspace)
+        agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
+
+        cmd = [
+            "tmux",
+            "new-session",
+            "-A",
+            "-s",
+            tmux_session,
+            *agent["command"],
+        ]
+        if bypass and agent_id == "claude-code":
+            cmd += ["--permission-mode", "bypassPermissions"]
         subprocess.Popen(
-            [
-                "tmux",
-                "new-session",
-                "-A",
-                "-s",
-                tmux_session,
-                _CLAUDE,
-                "--model",
-                "opus",
-                "--permission-mode",
-                "bypassPermissions",
-            ],
+            cmd,
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,

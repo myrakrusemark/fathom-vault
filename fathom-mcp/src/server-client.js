@@ -98,16 +98,27 @@ export function createClient(config) {
     });
   }
 
+  // --- Direct messaging -------------------------------------------------------
+
+  async function sendToWorkspace(target, message, from) {
+    return request("POST", `/api/send/${encodeURIComponent(target)}`, {
+      body: { message, from: from || workspace },
+    });
+  }
+
   // --- Workspaces ------------------------------------------------------------
 
   async function listWorkspaces() {
     return request("GET", "/api/workspaces/profiles");
   }
 
-  async function registerWorkspace(name, projectPath) {
-    return request("POST", "/api/workspaces", {
-      body: { name, path: projectPath },
-    });
+  async function registerWorkspace(name, projectPath, { vault, description, agents, type } = {}) {
+    const body = { name, path: projectPath };
+    if (vault) body.vault = vault;
+    if (description) body.description = description;
+    if (agents && agents.length > 0) body.agents = agents;
+    if (type) body.type = type;
+    return request("POST", "/api/workspaces", { body });
   }
 
   // --- Access tracking -------------------------------------------------------
@@ -159,6 +170,7 @@ export function createClient(config) {
     roomRead,
     roomList,
     roomDescribe,
+    sendToWorkspace,
     listWorkspaces,
     registerWorkspace,
     notifyAccess,

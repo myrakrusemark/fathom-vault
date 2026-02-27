@@ -72,8 +72,8 @@ function SenderName({ name, profiles }) {
               <span className="font-normal opacity-50 text-[10px]">({profile.type})</span>
             )}
           </span>
-          {profile.architecture && (
-            <span className="block opacity-70">{profile.architecture}</span>
+          {profile.agents?.length > 0 && (
+            <span className="block opacity-70">{profile.agents.join(", ")}</span>
           )}
           {profile.description && (
             <span className="block opacity-50 text-[10px]">{profile.description}</span>

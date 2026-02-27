@@ -12,6 +12,9 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
+from services.persistent_session import _AGENT_COMMANDS, _get_agent
+from services.settings import load_workspace_settings
+
 bp = Blueprint("room", __name__)
 
 _DB_PATH = Path(__file__).parent.parent / "data" / "access.db"
@@ -102,7 +105,7 @@ def _inject_message(target: str, formatted: str, workspace: str) -> bool:
             tmp_path = tmp.name
         subprocess.run(["tmux", "load-buffer", tmp_path], check=True, capture_output=True)
         subprocess.run(["tmux", "paste-buffer", "-t", target], check=True, capture_output=True)
-        time.sleep(0.5)
+        time.sleep(2)
         subprocess.run(
             ["tmux", "send-keys", "-t", target, "", "Enter"],
             check=True,
@@ -121,9 +124,10 @@ def _inject_to_workspace(workspace: str, formatted: str) -> dict:
     """Resolve workspace and inject — mirrors MCP injectToWorkspace()."""
     settings = _load_settings()
     workspaces = settings.get("workspaces") or {}
-    project_path = workspaces.get(workspace)
-    if not project_path:
+    ws_entry = workspaces.get(workspace)
+    if not ws_entry:
         return {"error": f'Unknown workspace: "{workspace}"', "workspace": workspace}
+    project_path = ws_entry.get("path") if isinstance(ws_entry, dict) else ws_entry
 
     session_name = f"{workspace}_fathom-session"
     pane_file = Path.home() / ".config" / "fathom" / f"{workspace}-pane-id"
@@ -152,19 +156,22 @@ def _inject_to_workspace(workspace: str, formatted: str) -> dict:
     def _bg():
         try:
             env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+            agent_id = _get_agent(workspace)
+            agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
+            ws_settings = load_workspace_settings(workspace)
+            bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
+            cmd = [
+                "tmux",
+                "new-session",
+                "-d",
+                "-s",
+                session_name,
+                *agent["command"],
+            ]
+            if bypass and agent_id == "claude-code":
+                cmd += ["--permission-mode", "bypassPermissions"]
             subprocess.run(
-                [
-                    "tmux",
-                    "new-session",
-                    "-d",
-                    "-s",
-                    session_name,
-                    str(Path.home() / ".local" / "bin" / "claude"),
-                    "--model",
-                    "opus",
-                    "--permission-mode",
-                    "bypassPermissions",
-                ],
+                cmd,
                 cwd=project_path,
                 env=env,
                 capture_output=True,
@@ -301,6 +308,24 @@ def set_room_description(room_name):
     con.close()
 
     return jsonify({"ok": True, "room": room_name, "description": description})
+
+
+@bp.route("/api/send/<workspace_name>", methods=["POST"])
+def send_to_workspace(workspace_name):
+    """Send a direct message to a workspace's agent session. Ephemeral — no storage."""
+    data = request.get_json(force=True)
+    message = data.get("message", "").strip()
+    if not message:
+        return jsonify({"error": "message is required"}), 400
+
+    sender = data.get("from", "unknown")
+    formatted = (
+        f"Message from workspace ({sender}): {message}\n"
+        f'(This is a direct message. Reply with fathom_send workspace="{sender}" — not in a room.)'
+    )
+
+    result = _inject_to_workspace(workspace_name, formatted)
+    return jsonify(result), 200 if not result.get("error") else 400
 
 
 @bp.route("/api/room/<room_name>", methods=["POST"])

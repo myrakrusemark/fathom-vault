@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0 (2026-02-26)
+
+- **Breaking:** removed `architecture` field everywhere — `agents` array is the only field
+- Cleaned up all backward compatibility shims across config, server, API, and frontend
+- Renamed `_get_architecture` → `_get_agent` in persistent session manager
+
+## 0.3.0 (2026-02-26)
+
+Multi-agent support.
+
+- **Multi-agent init wizard** — auto-detects installed agents and generates per-agent MCP configs
+- **Supported agents:** Claude Code, OpenAI Codex, Gemini CLI, OpenCode
+- **Per-agent config writers** — `.mcp.json`, `.codex/config.toml`, `.gemini/settings.json`, `opencode.json`
+- **Agent instructions boilerplate** — `fathom-agents.md` template for memory discipline, vault conventions, cross-workspace communication
+- **Conditional hooks** — hook setup only for Claude Code (other agents don't support hooks)
+- **`agents` array** in `.fathom.json` — workspace config stores which agents are configured
+- **Server-side agent dispatch** — persistent sessions launch the correct agent CLI per workspace
+- **Agent type registration** — init wizard sends primary agent type when registering workspace
+- **Status command** — shows configured agents per workspace
+
 ## 0.1.0 (2026-02-25)
 
 Initial release.

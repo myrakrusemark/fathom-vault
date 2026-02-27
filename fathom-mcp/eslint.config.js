@@ -18,6 +18,7 @@ export default [
         fetch: "readonly",
         AbortController: "readonly",
         AbortSignal: "readonly",
+        __dirname: "readonly",
       },
     },
     rules: {

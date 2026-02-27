@@ -213,9 +213,8 @@ const tools = [
       properties: {
         room: { type: "string", description: "Room name, e.g. 'general', 'navier-stokes'. Created on first post." },
         message: { type: "string", description: "Message to post. Use @workspace to mention and notify specific workspaces (e.g. '@fathom check this'), or @all for everyone." },
-        sender: { type: "string", description: "Who is posting — workspace name or 'myra'" },
       },
-      required: ["room", "message", "sender"],
+      required: ["room", "message"],
     },
   },
   {
@@ -271,15 +270,14 @@ const tools = [
   {
     name: "fathom_send",
     description:
-      "Send a message to another workspace's Claude instance — for cross-workspace coordination, " +
+      "Send a message to another workspace's agent instance — for cross-workspace coordination, " +
       "sharing findings, or requesting action. Use fathom_workspaces first to discover valid " +
       "targets. The target agent sees: 'Message from workspace ({from}): {message}'",
     inputSchema: {
       type: "object",
       properties: {
         workspace: { type: "string", description: "Target workspace name — run fathom_workspaces to see available options" },
-        message: { type: "string", description: "Message to send to the target workspace's Claude instance" },
-        from: { type: "string", description: "Your workspace name so the recipient knows who sent it (defaults to 'unknown')" },
+        message: { type: "string", description: "Message to send to the target workspace's agent instance" },
       },
       required: ["workspace", "message"],
     },
@@ -411,7 +409,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       result = await client.hybridSearch(args.query, { limit: args.limit, ws: args.workspace });
       break;
     case "fathom_room_post":
-      result = await client.roomPost(args.room, args.message, args.sender);
+      result = await client.roomPost(args.room, args.message, config.workspace);
       break;
     case "fathom_room_read":
       result = await client.roomRead(args.room, args.hours);
@@ -426,14 +424,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       result = await client.listWorkspaces();
       break;
     case "fathom_send":
-      // Send is implemented server-side (it manages tmux sessions)
-      result = await client.request?.("POST", `/api/room/${encodeURIComponent("__dm__")}`, {
-        body: { message: `Message from workspace (${args.from || "unknown"}): ${args.message}`, sender: args.from || "unknown" },
-      });
-      // For now, fall back to error until server implements /api/send
-      if (!result || result.error) {
-        result = { error: "fathom_send requires a running fathom-server with session management. This feature is being migrated." };
-      }
+      result = await client.sendToWorkspace(args.workspace, args.message, config.workspace);
       break;
     default:
       result = { error: `Unknown tool: ${name}` };
@@ -453,6 +444,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 async function main() {
+  // Auto-register workspace with server (fire-and-forget)
+  if (config.server && config.workspace) {
+    client.registerWorkspace(config.workspace, config._projectDir, {
+      vault: config._rawVault,
+      description: config.description,
+      agents: config.agents,
+    }).catch(() => {});
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

@@ -17,6 +17,8 @@ const DEFAULTS = {
   vault: "vault",
   server: "http://localhost:4243",
   apiKey: "",
+  description: "",
+  agents: [],
   hooks: {
     "context-inject": { enabled: true },
     "precompact-snapshot": { enabled: true },
@@ -65,6 +67,10 @@ export function resolveConfig(startDir = process.cwd()) {
     if (config.vault) result.vault = config.vault;
     if (config.server) result.server = config.server;
     if (config.apiKey) result.apiKey = config.apiKey;
+    if (config.description) result.description = config.description;
+    if (config.agents && Array.isArray(config.agents)) {
+      result.agents = config.agents;
+    }
     if (config.hooks) {
       result.hooks = { ...result.hooks, ...config.hooks };
     }
@@ -80,6 +86,9 @@ export function resolveConfig(startDir = process.cwd()) {
   if (!result.workspace) {
     result.workspace = path.basename(projectDir);
   }
+
+  // Preserve raw vault name before resolving to absolute (for registration)
+  result._rawVault = result.vault;
 
   // Resolve vault to absolute path
   if (!path.isAbsolute(result.vault)) {
@@ -105,6 +114,8 @@ export function writeConfig(dir, config) {
     vault: config.vault || "vault",
     server: config.server || DEFAULTS.server,
     apiKey: config.apiKey || "",
+    description: config.description || "",
+    agents: config.agents || [],
     hooks: config.hooks || DEFAULTS.hooks,
   };
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");

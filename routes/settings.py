@@ -114,6 +114,16 @@ def update_settings():
             act_settings["excluded_from_scoring"] = ex
         settings["activity"] = act_settings
 
+    # --- session fields ---
+    if "session" in data:
+        sess = data["session"]
+        if not isinstance(sess, dict):
+            return jsonify({"error": "session must be an object"}), 400
+        sess_settings = settings.get("session", {})
+        if "bypass_permissions" in sess:
+            sess_settings["bypass_permissions"] = bool(sess["bypass_permissions"])
+        settings["session"] = sess_settings
+
     # --- workspace fields (global) ---
     if "workspaces" in data:
         ws = data["workspaces"]
@@ -187,7 +197,7 @@ def workspace_profiles():
             last_ping = routines[0].get("last_ping_at")
 
         profiles[ws_name] = {
-            "architecture": ws_entry.get("architecture", ""),
+            "agents": ws_entry.get("agents", []),
             "running": running,
             "last_ping": last_ping,
             "vault": ws_entry.get("vault", "vault"),
@@ -210,15 +220,19 @@ def create_workspace():
     project_path = data.get("path", "").strip() or data.get("vault_path", "").strip()
     vault = data.get("vault", "").strip() or "vault"
     description = data.get("description", "").strip()
-    architecture = data.get("architecture", "").strip()
+    agents = data.get("agents", [])
     ws_type = data.get("type", "local").strip()
+
+    # Validate agents array
+    if agents and (not isinstance(agents, list) or not all(isinstance(a, str) for a in agents)):
+        return jsonify({"error": "agents must be a list of strings"}), 400
 
     ok, err = add_workspace(
         name,
         project_path,
         vault=vault,
         description=description,
-        architecture=architecture,
+        agents=agents,
         type=ws_type,
     )
     if not ok:

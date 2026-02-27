@@ -84,6 +84,7 @@ describe("resolveConfig", () => {
     assert.equal(config.apiKey, "");
     assert.equal(config.workspace, path.basename(tmpDir)); // derived from dir name
     assert.equal(config.vault, path.join(tmpDir, "vault"));
+    assert.deepEqual(config.agents, []);
   });
 
   it("config file values override defaults", () => {
@@ -99,6 +100,7 @@ describe("resolveConfig", () => {
         server: "http://myserver:9999",
         apiKey: "fv_test123",
         vault: "my-vault",
+        agents: ["claude-code", "gemini"],
       }),
     );
 
@@ -107,6 +109,7 @@ describe("resolveConfig", () => {
     assert.equal(config.server, "http://myserver:9999");
     assert.equal(config.apiKey, "fv_test123");
     assert.equal(config.vault, path.join(tmpDir, "my-vault"));
+    assert.deepEqual(config.agents, ["claude-code", "gemini"]);
 
     fs.unlinkSync(path.join(tmpDir, ".fathom.json"));
   });
@@ -152,6 +155,23 @@ describe("resolveConfig", () => {
 
     fs.unlinkSync(path.join(tmpDir, ".fathom.json"));
   });
+
+  it("reads agents array from config", () => {
+    delete process.env.FATHOM_SERVER_URL;
+    delete process.env.FATHOM_API_KEY;
+    delete process.env.FATHOM_WORKSPACE;
+    delete process.env.FATHOM_VAULT_DIR;
+
+    fs.writeFileSync(
+      path.join(tmpDir, ".fathom.json"),
+      JSON.stringify({ agents: ["codex", "gemini"] }),
+    );
+
+    const config = resolveConfig(tmpDir);
+    assert.deepEqual(config.agents, ["codex", "gemini"]);
+
+    fs.unlinkSync(path.join(tmpDir, ".fathom.json"));
+  });
 });
 
 describe("writeConfig", () => {
@@ -177,5 +197,50 @@ describe("writeConfig", () => {
     const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     assert.equal(parsed.workspace, "test-ws");
     assert.equal(parsed.apiKey, "fv_abc");
+  });
+
+  it("writes agents array to config", () => {
+    const configPath = writeConfig(tmpDir, {
+      workspace: "multi-agent-ws",
+      agents: ["claude-code", "codex", "gemini"],
+    });
+
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    assert.deepEqual(parsed.agents, ["claude-code", "codex", "gemini"]);
+  });
+
+  it("writes empty agents array when none specified", () => {
+    const configPath = writeConfig(tmpDir, {
+      workspace: "no-agents-ws",
+    });
+
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    assert.deepEqual(parsed.agents, []);
+  });
+});
+
+describe("agent detection heuristics", () => {
+  let tmpDir;
+
+  before(() => {
+    tmpDir = makeTempDir();
+  });
+
+  after(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("detects agents from directory markers", async () => {
+    // Dynamically import AGENTS from cli.js
+    const { AGENTS } = await import("../src/cli.js");
+
+    // Create directory markers
+    fs.mkdirSync(path.join(tmpDir, ".claude"));
+    fs.mkdirSync(path.join(tmpDir, ".gemini"));
+
+    assert.equal(AGENTS["claude-code"].detect(tmpDir), true);
+    assert.equal(AGENTS["gemini"].detect(tmpDir), true);
+    assert.equal(AGENTS["codex"].detect(tmpDir), false);
+    assert.equal(AGENTS["opencode"].detect(tmpDir), false);
   });
 });

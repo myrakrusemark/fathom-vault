@@ -10,8 +10,20 @@ _DEFAULT_API_URL = "https://memento-api.myrakrusemark.workers.dev"
 _NO_CRYSTAL = "No identity crystal found"
 
 
-def _load_memento_config() -> dict:
-    """Walk upward from cwd looking for .memento.json; return its contents or {}."""
+def _load_memento_config(start_dir: str | None = None) -> dict:
+    """Look for .memento.json in start_dir only (no parent walk).
+
+    If start_dir is None, falls back to cwd walk for server-level operations.
+    """
+    if start_dir:
+        candidate = pathlib.Path(start_dir) / ".memento.json"
+        if candidate.exists():
+            try:
+                return json.loads(candidate.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+    # Fallback: walk from cwd (server-level, no workspace context)
     here = pathlib.Path.cwd()
     for directory in [here, *here.parents]:
         candidate = directory / ".memento.json"
@@ -23,13 +35,28 @@ def _load_memento_config() -> dict:
     return {}
 
 
+def _workspace_project_path(workspace: str | None) -> str | None:
+    """Resolve a workspace name to its project directory path."""
+    if not workspace:
+        return None
+    from services.settings import load_global_settings
+
+    gs = load_global_settings()
+    ws_entry = gs.get("workspaces", {}).get(workspace, {})
+    return ws_entry.get("path") if isinstance(ws_entry, dict) else ws_entry or None
+
+
 def write_crystal(crystal_text: str, workspace: str = None) -> dict:
     """Write an identity crystal to Memento SaaS.
 
     Returns dict with keys: ok (bool), error (str, optional).
     """
-    cfg = _load_memento_config()
-    api_key = cfg.get("apiKey") or os.getenv("MEMENTO_API_KEY", "")
+    project_path = _workspace_project_path(workspace)
+    cfg = _load_memento_config(project_path)
+    if project_path:
+        api_key = cfg.get("apiKey", "")
+    else:
+        api_key = cfg.get("apiKey") or os.getenv("MEMENTO_API_KEY", "")
     workspace = workspace or cfg.get("workspace") or os.getenv("MEMENTO_WORKSPACE", "default")
     api_url = os.getenv("MEMENTO_API_URL", _DEFAULT_API_URL)
 
@@ -61,8 +88,8 @@ def write_crystal(crystal_text: str, workspace: str = None) -> dict:
 def get_status(workspace: str = None) -> dict:
     """Return Memento configuration + crystal status.
 
-    Reads credentials from .memento.json (walking upward from cwd), falling
-    back to MEMENTO_API_KEY / MEMENTO_API_URL / MEMENTO_WORKSPACE env vars.
+    Reads credentials from .memento.json in the workspace's project directory.
+    Only falls back to env vars when no workspace is specified (server-level check).
 
     Returns dict with keys:
         configured  bool  — API key is available
@@ -70,8 +97,14 @@ def get_status(workspace: str = None) -> dict:
         error       str   — only present on connection failure
         crystal     dict | None — {exists, created_at, source_count, preview} or None
     """
-    cfg = _load_memento_config()
-    api_key = cfg.get("apiKey") or os.getenv("MEMENTO_API_KEY", "")
+    project_path = _workspace_project_path(workspace)
+    cfg = _load_memento_config(project_path)
+    if project_path:
+        # Workspace-specific: only use that workspace's .memento.json
+        api_key = cfg.get("apiKey", "")
+    else:
+        # Server-level: allow env var fallback
+        api_key = cfg.get("apiKey") or os.getenv("MEMENTO_API_KEY", "")
     workspace = workspace or cfg.get("workspace") or os.getenv("MEMENTO_WORKSPACE", "default")
     api_url = os.getenv("MEMENTO_API_URL", _DEFAULT_API_URL)
 

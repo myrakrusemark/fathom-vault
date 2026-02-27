@@ -9,9 +9,18 @@
   hifathom.com  ·  fathom@myrakrusemark.com
 ```
 
-MCP server for [Fathom](https://hifathom.com) — vault operations, search, rooms, and cross-workspace communication.
+MCP server for [Fathom](https://hifathom.com) — vault operations, search, rooms, and cross-workspace communication. Works with any MCP-compatible agent.
 
-The MCP tools that let Claude Code interact with your vault. Reads/writes happen locally (fast, no network hop). Search, rooms, and workspace management go through your [fathom-server](https://github.com/myrakrusemark/fathom-vault) instance.
+## Supported Agents
+
+| Agent | Config file | Auto-detected by |
+|-------|------------|------------------|
+| **Claude Code** | `.mcp.json` | `.claude/` directory |
+| **OpenAI Codex** | `.codex/config.toml` | `.codex/` directory |
+| **Gemini CLI** | `.gemini/settings.json` | `.gemini/` directory |
+| **OpenCode** | `opencode.json` | `opencode.json` file |
+
+The init wizard auto-detects which agents you have and generates the right config for each.
 
 ## Quick Start
 
@@ -19,13 +28,14 @@ The MCP tools that let Claude Code interact with your vault. Reads/writes happen
 npx fathom-mcp init
 ```
 
-That's it. Restart Claude Code and fathom tools will be available.
+The wizard will:
+1. Detect installed agents (Claude Code, Codex, Gemini, etc.)
+2. Let you pick which ones to configure
+3. Write per-agent MCP config files
+4. Set up hooks (Claude Code only)
+5. Register the workspace with your fathom-server
 
-The init wizard creates:
-- `.fathom.json` — workspace config (server URL, API key, vault path)
-- `.mcp.json` — registers `npx fathom-mcp` as an MCP server
-- `.claude/settings.local.json` — hooks for context injection and precompact snapshots
-- `vault/` — creates the directory if it doesn't exist
+Restart your agent and fathom tools will be available.
 
 ## Prerequisites
 
@@ -35,7 +45,7 @@ The init wizard creates:
 ## Commands
 
 ```bash
-npx fathom-mcp              # Start MCP server (stdio — used by .mcp.json)
+npx fathom-mcp              # Start MCP server (stdio — used by agent configs)
 npx fathom-mcp init          # Interactive setup wizard
 npx fathom-mcp status        # Check server connection + workspace status
 ```
@@ -64,7 +74,7 @@ npx fathom-mcp status        # Check server connection + workspace status
 | `fathom_room_list` | List all rooms |
 | `fathom_room_describe` | Set a room's description/topic |
 | `fathom_workspaces` | List all configured workspaces |
-| `fathom_send` | Send a message to another workspace's Claude instance |
+| `fathom_send` | Send a message to another workspace's agent instance |
 
 ## Configuration
 
@@ -76,8 +86,9 @@ npx fathom-mcp status        # Check server connection + workspace status
   "vault": "vault",
   "server": "http://localhost:4243",
   "apiKey": "fv_abc123...",
+  "agents": ["claude-code", "gemini"],
   "hooks": {
-    "context-inject": { "enabled": true },
+    "vault-recall": { "enabled": true },
     "precompact-snapshot": { "enabled": true }
   }
 }
@@ -89,11 +100,15 @@ npx fathom-mcp status        # Check server connection + workspace status
 2. `.fathom.json` (walked up from cwd to filesystem root)
 3. Built-in defaults
 
-## Hooks
+## Hooks (Claude Code only)
 
-**SessionStart / UserPromptSubmit** (`fathom-context.sh`): Injects recent vault activity into Claude's context.
+Hooks are only available in Claude Code and are configured in `.claude/settings.local.json`.
 
-**PreCompact** (`fathom-precompact.sh`): Records which vault files were active in the session before context compaction.
+**UserPromptSubmit** (`fathom-recall.sh`): Runs vault recall on every message — injects relevant context.
+
+**PreCompact** (`fathom-precompact.sh`): Records which vault files were active before context compaction.
+
+Other agents don't support hooks — they get the same MCP tools but without automatic context injection.
 
 ## Vault Frontmatter Schema
 
