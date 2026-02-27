@@ -174,7 +174,7 @@ export default function CommunicationView() {
   // Fetch messages for selected room
   const fetchMessages = useCallback(() => {
     if (!selectedRoom) return
-    fetch(`/api/room/${encodeURIComponent(selectedRoom)}?hours=168`)
+    fetch(`/api/room/${encodeURIComponent(selectedRoom)}?minutes=10080`)
       .then(r => r.json())
       .then(data => setMessages(data.messages || []))
       .catch(console.error)

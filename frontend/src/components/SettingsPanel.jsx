@@ -4,12 +4,28 @@ export default function SettingsPanel({ onClose }) {
   const [authStatus, setAuthStatus] = useState(null)
   const [fullApiKey, setFullApiKey] = useState(null)
   const [keyCopied, setKeyCopied] = useState(false)
+  const [retentionDays, setRetentionDays] = useState(7)
+  const [retentionUnlimited, setRetentionUnlimited] = useState(false)
+  const [retentionSaving, setRetentionSaving] = useState(false)
 
-  // Load auth status
+  // Load auth status + settings
   useEffect(() => {
     fetch('/api/auth/status')
       .then(r => r.json())
       .then(data => setAuthStatus(data))
+      .catch(console.error)
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(data => {
+        const rd = data.rooms?.retention_days
+        if (rd === null) {
+          setRetentionUnlimited(true)
+          setRetentionDays(7)
+        } else {
+          setRetentionUnlimited(false)
+          setRetentionDays(rd ?? 7)
+        }
+      })
       .catch(console.error)
   }, [])
 
@@ -123,6 +139,75 @@ export default function SettingsPanel({ onClose }) {
               </button>
             </>
           )}
+        </section>
+
+        {/* Rooms section */}
+        <section>
+          <h3 className="text-xs font-semibold text-neutral-content opacity-50 uppercase tracking-wider mb-3">
+            Rooms
+          </h3>
+
+          {/* Retention toggle */}
+          <label className="flex items-center justify-between gap-3 cursor-pointer mb-2">
+            <span className="text-sm text-base-content">Unlimited retention</span>
+            <input
+              type="checkbox"
+              className="toggle toggle-primary toggle-sm"
+              checked={retentionUnlimited}
+              onChange={e => {
+                const unlimited = e.target.checked
+                setRetentionUnlimited(unlimited)
+                setRetentionSaving(true)
+                fetch('/api/settings', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ rooms: { retention_days: unlimited ? null : retentionDays } }),
+                })
+                  .then(r => r.json())
+                  .then(() => setRetentionSaving(false))
+                  .catch(() => setRetentionSaving(false))
+              }}
+            />
+          </label>
+
+          {/* Retention days input */}
+          {!retentionUnlimited && (
+            <div className="mb-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={retentionDays}
+                  onChange={e => {
+                    const v = parseInt(e.target.value, 10)
+                    if (v >= 1 && v <= 60) setRetentionDays(v)
+                  }}
+                  onBlur={() => {
+                    setRetentionSaving(true)
+                    fetch('/api/settings', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ rooms: { retention_days: retentionDays } }),
+                    })
+                      .then(r => r.json())
+                      .then(() => setRetentionSaving(false))
+                      .catch(() => setRetentionSaving(false))
+                  }}
+                  className="w-16 px-2 py-1 rounded-md bg-base-100 border border-base-300 text-sm text-base-content
+                    focus:outline-none focus:border-primary/50 transition-colors text-center"
+                />
+                <span className="text-sm text-base-content opacity-70">days</span>
+                {retentionSaving && (
+                  <span className="text-[10px] text-primary opacity-60">saving...</span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-neutral-content opacity-50">
+            Messages older than this are pruned automatically. Applies to all rooms.
+          </p>
         </section>
       </div>
     </div>
