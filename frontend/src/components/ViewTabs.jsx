@@ -11,6 +11,7 @@ export default function ViewTabs({ currentView, setCurrentView, disabledViews = 
   ]
 
   return (
+    <div className="group/tabs flex items-center gap-1.5">
     <div className="flex items-center gap-0.5 bg-base-300/40 rounded-lg px-1 py-0.5">
       {views.map(v => {
         const isActive = v.id === currentView
@@ -68,6 +69,10 @@ export default function ViewTabs({ currentView, setCurrentView, disabledViews = 
           </button>
         )
       })}
+    </div>
+    <span className="text-[10px] text-neutral-content opacity-0 group-hover/tabs:opacity-40 transition-opacity duration-200 whitespace-nowrap select-none">
+      Ctrl+[ ]&ensp;views&ensp;&middot;&ensp;Ctrl+Shift+[ ]&ensp;agents
+    </span>
     </div>
   )
 }

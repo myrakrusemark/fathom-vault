@@ -240,6 +240,9 @@ export default function WorkspaceSelector() {
             {wsError && (
               <p className="text-xs text-error px-3 py-1">{wsError}</p>
             )}
+            <div className="px-3 py-1.5 text-[10px] text-neutral-content opacity-40 border-t border-base-300 select-none">
+              Ctrl+Shift+[ / ] to switch
+            </div>
           </div>
         )}
       </div>

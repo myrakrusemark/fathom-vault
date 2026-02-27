@@ -21,7 +21,7 @@ export default function App() {
 }
 
 function AppInner() {
-  const { activeWorkspace, workspaces } = useWorkspace()
+  const { activeWorkspace, setActiveWorkspace, workspaces } = useWorkspace()
   const [folders, setFolders] = useState([])
   const [selectedFolder, setSelectedFolder] = useState(null)
   const [files, setFiles] = useState(null)
@@ -48,6 +48,50 @@ function AppInner() {
     'claude-code': 'Claude', 'codex': 'Codex', 'gemini': 'Gemini', 'opencode': 'OpenCode',
   }[agentId] || agentId)
   const disabledViews = wsType === 'human' ? ['memento', 'activation'] : []
+
+  // Keyboard shortcuts: Ctrl+[/] cycle views, Ctrl+Shift+[/] cycle workspaces
+  useEffect(() => {
+    const allViews = [
+      { id: 'vault' },
+      { id: 'activation' },
+      { id: 'communication' },
+    ]
+
+    function handleKeyDown(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return
+
+      if (!e.ctrlKey || e.altKey || e.metaKey) return
+
+      // Shift+[ produces '{', Shift+] produces '}'
+      const isNext = e.key === ']' || e.key === '}'
+      const isPrev = e.key === '[' || e.key === '{'
+      if (!isNext && !isPrev) return
+
+      e.preventDefault()
+      const dir = isNext ? 1 : -1
+
+      if (e.shiftKey || e.key === '{' || e.key === '}') {
+        // Cycle workspaces
+        const wsNames = Object.keys(workspaces)
+        if (wsNames.length < 2) return
+        const idx = wsNames.indexOf(activeWorkspace)
+        const next = (idx + dir + wsNames.length) % wsNames.length
+        setActiveWorkspace(wsNames[next])
+      } else {
+        // Cycle local, enabled views
+        const enabled = allViews.filter(v => !disabledViews.includes(v.id))
+        if (enabled.length < 2) return
+        const idx = enabled.findIndex(v => v.id === currentView)
+        const base = idx === -1 ? 0 : idx
+        const next = (base + dir + enabled.length) % enabled.length
+        setCurrentView(enabled[next].id)
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [currentView, disabledViews, activeWorkspace, workspaces, setActiveWorkspace])
 
   // Apply theme to DOM and persist
   useEffect(() => {
