@@ -270,7 +270,7 @@ const tools = [
   {
     name: "fathom_send",
     description:
-      "Send a message to another workspace's Claude instance — for cross-workspace coordination, " +
+      "Send a message to another workspace's agent instance — for cross-workspace coordination, " +
       "sharing findings, or requesting action. Use fathom_workspaces first to discover valid " +
       "targets. The target agent sees: 'Message from workspace ({from}): {message}'",
     inputSchema: {
@@ -424,14 +424,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       result = await client.listWorkspaces();
       break;
     case "fathom_send":
-      // Send is implemented server-side (it manages tmux sessions)
-      result = await client.request?.("POST", `/api/room/${encodeURIComponent("__dm__")}`, {
-        body: { message: `Message from workspace (${config.workspace}): ${args.message}`, sender: config.workspace },
-      });
-      // For now, fall back to error until server implements /api/send
-      if (!result || result.error) {
-        result = { error: "fathom_send requires a running fathom-server with session management. This feature is being migrated." };
-      }
+      result = await client.sendToWorkspace(args.workspace, args.message, config.workspace);
       break;
     default:
       result = { error: `Unknown tool: ${name}` };

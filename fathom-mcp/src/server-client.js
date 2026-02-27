@@ -98,6 +98,14 @@ export function createClient(config) {
     });
   }
 
+  // --- Direct messaging -------------------------------------------------------
+
+  async function sendToWorkspace(target, message, from) {
+    return request("POST", `/api/send/${encodeURIComponent(target)}`, {
+      body: { message, from: from || workspace },
+    });
+  }
+
   // --- Workspaces ------------------------------------------------------------
 
   async function listWorkspaces() {
@@ -162,6 +170,7 @@ export function createClient(config) {
     roomRead,
     roomList,
     roomDescribe,
+    sendToWorkspace,
     listWorkspaces,
     registerWorkspace,
     notifyAccess,

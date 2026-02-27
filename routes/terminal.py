@@ -13,7 +13,13 @@ from urllib.parse import parse_qs
 
 from flask_sock import Sock
 
-from services.persistent_session import _CLAUDE, _session_name, _work_dir, ensure_running
+from services.persistent_session import (
+    _AGENT_COMMANDS,
+    _get_agent,
+    _session_name,
+    _work_dir,
+    ensure_running,
+)
 from services.settings import load_workspace_settings
 
 sock = Sock()
@@ -60,17 +66,18 @@ def terminal(ws):
         ws_settings = load_workspace_settings(workspace)
         bypass = ws_settings.get("session", {}).get("bypass_permissions", False)
 
+        agent_id = _get_agent(workspace)
+        agent = _AGENT_COMMANDS.get(agent_id, _AGENT_COMMANDS["claude-code"])
+
         cmd = [
             "tmux",
             "new-session",
             "-A",
             "-s",
             tmux_session,
-            _CLAUDE,
-            "--model",
-            "opus",
+            *agent["command"],
         ]
-        if bypass:
+        if bypass and agent_id == "claude-code":
             cmd += ["--permission-mode", "bypassPermissions"]
         subprocess.Popen(
             cmd,

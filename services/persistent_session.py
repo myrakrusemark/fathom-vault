@@ -25,15 +25,15 @@ _AGENT_COMMANDS = {
     },
     "codex": {
         "command": ["codex"],
-        "restart_flag": None,
+        "restart_flag": "resume --last",
     },
     "gemini": {
         "command": ["gemini"],
-        "restart_flag": None,
+        "restart_flag": "--resume",
     },
     "opencode": {
         "command": ["opencode"],
-        "restart_flag": None,
+        "restart_flag": "--continue",
     },
 }
 
@@ -203,7 +203,8 @@ def restart(workspace: str = None) -> bool:
             # Build agent command with restart flag if supported
             agent_cmd = list(agent["command"])
             if agent.get("restart_flag"):
-                agent_cmd.insert(1, agent["restart_flag"])
+                for i, part in enumerate(agent["restart_flag"].split()):
+                    agent_cmd.insert(1 + i, part)
             cmd = [
                 "tmux",
                 "new-session",
